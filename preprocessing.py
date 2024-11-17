@@ -43,6 +43,9 @@ class AccelerometerData(DataLoader):
         Returns:
             Drift-removed data.
         """
+        b = np.ones(window_size) / window_size
+        a = [1]
+        return np.array([lfilter(b, a, data[i]) for i in range(3)])
         pass
 
     def bandpass_filter(self, data, fs=100, lowcut=1.0, highcut=30.0, numtaps=101):
