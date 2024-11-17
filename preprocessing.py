@@ -12,6 +12,7 @@ class AccelerometerData(DataLoader):
                 "freq(Hz)": frequency,
             },
         )
+        self.label = []
 
     def print_data(self):
         # Access the data
@@ -120,12 +121,23 @@ class AccelerometerData(DataLoader):
         for i in range(self.data.shape[0]):
             self.data[i] = 1 if self.data[i] > threshold else 0
 
-    def _extract_features(self):
-        pass
+    def _label(self, threshold=3):
+        start = None
+        for i in range(self.data.shape[0]):
+            if self.data[i] == 1:
+                if start is None:
+                    start = i
+            else:
+                if start is not None:
+                    end = i - 1
+                    if end - start + 1 > threshold:
+                        self.label.append(start)
+                    start = None
 
     def preprocess_data(self):
-        self._remove_drift()
-        self._bandpass_filter()
+        self._smooth_data()
+        self._multiply()
+        self._thresholding()
 
     def plot_data(self, t_start=0, t_end=None):
         import matplotlib.pyplot as plt
