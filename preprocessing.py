@@ -1,6 +1,7 @@
 from data_loader import DataLoader
 import numpy as np
-from scipy.signal import lfilter, firwin, filtfilt
+from scipy.signal import lfilter, firwin, filtfilt, find_peaks
+from spectrum import arburg
 
 
 class AccelerometerData(DataLoader):
@@ -90,11 +91,32 @@ class AccelerometerData(DataLoader):
             Peak frequency if within tremor range, otherwise 1.
         """
         # Fit the data using Berg Method (use a library)
+        [A, P, K] = arburg(window, ar_order)
 
-        # Use the Fast Fourier transform to get data into frequency-time domain
-        # and separate data into frequency bins.
+        # Generate the frequency response from the AR coefficients
+        freqs = np.linspace(0, fs / 2, 512)  # Frequency range up to Nyquist frequency
+        _, h = np.linalg.eigh(np.polyval(A, np.exp(-1j * 2 * np.pi * freqs / fs)))
+        psd = np.abs(h) ** 2
 
-        # Find tremor times by looking for peak frequency in range 3-8.
+        # Normalize the power spectral density (PSD)
+        psd /= np.sum(psd)
+
+        # Find the frequency bin corresponding to the maximum power
+        peaks, _ = find_peaks(psd)
+        if peaks.size == 0:
+            return 1  # No peaks detected
+
+        # Convert peak indices to frequencies
+        peak_freqs = freqs[peaks]
+
+        # Filter peaks within the desired frequency range
+        tremor_peaks = peak_freqs[(peak_freqs >= low_freq) & (peak_freqs <= high_freq)]
+
+        # Return the dominant tremor frequency, if any
+        if tremor_peaks.size > 0:
+            return tremor_peaks[np.argmax(psd[peaks])]
+        else:
+            return 1  # No peak within the tremor ra
 
     def preprocess_data(self):
         self._remove_drift()
