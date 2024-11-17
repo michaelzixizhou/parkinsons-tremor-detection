@@ -1,8 +1,6 @@
 from data_loader import DataLoader
 import numpy as np
-from scipy.signal import lfilter, firwin, filtfilt, find_peaks
-from spectrum import arburg
-
+from scipy.signal import lfilter, firwin, filtfilt, savgol_filter
 
 class AccelerometerData(DataLoader):
     def __init__(self, file_path, frequency):
@@ -31,95 +29,20 @@ class AccelerometerData(DataLoader):
         high = highcut / nyquist
         b = firwin(numtaps=101, cutoff=[low, high], pass_zero=False)
         self.data = filtfilt(b, [1.0], self.data)
+    
+    def _smooth_data(self, window_size=50):
+        self.data = savgol_filter(self.data, window_size, 3)
+        # self.data = np.convolve(self.data, np.ones(window_size)/window_size, mode='same')
 
-    def remove_drift(self, data, window_size=50):
-        """
-        Removes drift using a moving average filter.
+    def _multiply(self):
+        self.data = self.data[0] * self.data[1] * self.data[2]
+    
+    def _thresholding(self, threshold=3.5):
+        for i in range(self.data.shape[0]):
+            self.data[i] = 1 if self.data[i] > threshold else 0
 
-        Args:
-            data: Array of accelerometer data.
-            window_size: Size of the moving average window.
-
-        Returns:
-            Drift-removed data.
-        """
-        b = np.ones(window_size) / window_size
-        a = [1]
-        return np.array([lfilter(b, a, data[i]) for i in range(3)])
+    def _extract_features(self):
         pass
-
-    def bandpass_filter(self, data, fs=100, lowcut=1.0, highcut=30.0, numtaps=101):
-        """
-        Filters the signal to only retain components in the 1-30 Hz range.
-
-        Args:
-            data: Array of accelerometer data.
-            fs: Sample frequency.
-            lowcut: Lower cut-off frequency.
-            highcut: Upper cut-off.
-
-        Returns:
-            Bandpass filtered data.
-        """
-        pass
-
-    def segment_data(self, data, window_size, overlap_ratio):
-        """
-        Segments data into overlapping windows with Hamming weights.
-
-        Args:
-            data: Array of accelerometer data.
-            window_size: Number of samples per window.
-            overlap_ratio: Fraction of overlap between consecutive windows.
-
-        Returns:
-            Array of segmented windows.
-        """
-        pass
-
-    def detect_peak_frequency(
-        self, window, fs=100, low_freq=3, high_freq=8, ar_order=6
-    ):
-        """
-        Detects peak frequency using an autoregressive model.
-
-        Args:
-            window: Windowed segment of accelerometer data.
-            fs: Sampling frequency.
-            low_freq: Lower frequency bound for tremor detection.
-            high_freq: Upper frequency bound for tremor detection.
-            ar_order: Order of the autoregressive model.
-
-        Return:
-            Peak frequency if within tremor range, otherwise 1.
-        """
-        # Fit the data using Berg Method (use a library)
-        [A, P, K] = arburg(window, ar_order)
-
-        # Generate the frequency response from the AR coefficients
-        freqs = np.linspace(0, fs / 2, 512)  # Frequency range up to Nyquist frequency
-        _, h = np.linalg.eigh(np.polyval(A, np.exp(-1j * 2 * np.pi * freqs / fs)))
-        psd = np.abs(h) ** 2
-
-        # Normalize the power spectral density (PSD)
-        psd /= np.sum(psd)
-
-        # Find the frequency bin corresponding to the maximum power
-        peaks, _ = find_peaks(psd)
-        if peaks.size == 0:
-            return 1  # No peaks detected
-
-        # Convert peak indices to frequencies
-        peak_freqs = freqs[peaks]
-
-        # Filter peaks within the desired frequency range
-        tremor_peaks = peak_freqs[(peak_freqs >= low_freq) & (peak_freqs <= high_freq)]
-
-        # Return the dominant tremor frequency, if any
-        if tremor_peaks.size > 0:
-            return tremor_peaks[np.argmax(psd[peaks])]
-        else:
-            return 1  # No peak within the tremor ra
 
     def preprocess_data(self):
         self._remove_drift()
