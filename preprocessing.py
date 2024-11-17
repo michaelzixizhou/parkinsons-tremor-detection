@@ -34,13 +34,13 @@ class AccelerometerData(DataLoader):
     def segment_data(data, window_size, overlap_ratio):
         step_size = int((1 - overlap_ratio) * window_size)
         hamming_window = hamming(window_size)
-        n_segments = (len(data)-window_size)//step_size + 1
+        n_segments = (len(self.data)-window_size)//step_size + 1
         segments = np.zeros((n_segments, window_size))
         for i in range(n_segments):
             start_idx = i * step_size
             end_idx = start_idx + window_size
-            segments[i] = data[start_idx:end_idx] * hamming_window
-        return segments
+            segments[i] = self.data[start_idx:end_idx] * hamming_window
+        self.data = segments
 
     def _smooth_data(self, window_size=50):
         self.data = savgol_filter(self.data, window_size, 3)
