@@ -1,13 +1,15 @@
 import pickle
 
-
 class DataLoader:
     def __init__(self, file_path, meta_data={}):
         self.file_path = file_path
         self.data = None
         self.meta_data = meta_data
-        self._load_data()
-
+        if file_path == None:
+            self.data = None
+        else:
+            self._load_data()
+    
     def _load_data(self):
         with open(self.file_path, "rb") as f:
             self.data = pickle.load(f)
