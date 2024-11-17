@@ -1,6 +1,6 @@
 from data_loader import DataLoader
 import numpy as np
-from scipy.signal import lfilter, firwin, filtfilt, savgol_filter
+from scipy.signal import lfilter, firwin, filtfilt, savgol_filter, hamming
 
 class AccelerometerData(DataLoader):
     def __init__(self, file_path, frequency):
@@ -29,7 +29,19 @@ class AccelerometerData(DataLoader):
         high = highcut / nyquist
         b = firwin(numtaps=101, cutoff=[low, high], pass_zero=False)
         self.data = filtfilt(b, [1.0], self.data)
-    
+
+    # Windowing with Hamming Function
+    def segment_data(data, window_size, overlap_ratio):
+        step_size = int((1 - overlap_ratio) * window_size)
+        hamming_window = hamming(window_size)
+        n_segments = (len(data)-window_size)//step_size + 1
+        segments = np.zeros((n_segments, window_size))
+        for i in range(n_segments):
+            start_idx = i * step_size
+            end_idx = start_idx + window_size
+            segments[i] = data[start_idx:end_idx] * hamming_window
+        return segments
+
     def _smooth_data(self, window_size=50):
         self.data = savgol_filter(self.data, window_size, 3)
         # self.data = np.convolve(self.data, np.ones(window_size)/window_size, mode='same')
