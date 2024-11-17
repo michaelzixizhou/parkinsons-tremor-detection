@@ -141,7 +141,7 @@ class AccelerometerData(DataLoader):
                 if start is not None:
                     end = i - 1
                     if end - start + 1 > threshold:
-                        self.label.append((start, end, end - start + 1))
+                        self.features.append((start, end, end - start + 1))
                     start = None
 
     def preprocess_data(self):
@@ -149,6 +149,8 @@ class AccelerometerData(DataLoader):
         self._bandpass_filter()
         print(self.data.shape)
         self.segment_data(300, 0.9)
+        self.detect_peak_frequency()
+        #### 
         self._smooth_data()
         self._multiply()
         self._thresholding()
