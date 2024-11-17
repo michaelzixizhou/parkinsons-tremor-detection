@@ -1,9 +1,8 @@
-# how to access accelerometer data for one trial
 from data_loader import DataLoader
 import numpy as np
 from scipy.signal import lfilter, firwin, filtfilt
 
-class AcceleromemterData(DataLoader):
+class AccelerometerData(DataLoader):
     def __init__(self, file_path, frequency):
         super().__init__(file_path, meta_data={
             "freq(Hz)": frequency,
