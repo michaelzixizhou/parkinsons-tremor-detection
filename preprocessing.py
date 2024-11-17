@@ -64,15 +64,15 @@ class AccelerometerData(DataLoader):
         """
         step_size = int((1 - overlap_ratio) * window_size)
         hamming_window = hamming(window_size)
-
-        n_segments = (len(self.data[0]) - window_size) // step_size + 1
-
-        segments = np.zeros((n_segments, window_size))
+        n_samples, n_channels = self.data.shape
+        n_segments = (len(self.data) - window_size) // step_size + 1
+        segmented_data = np.zeros((n_segments, window_size, n_channels))
         for i in range(n_segments):
             start_idx = i * step_size
             end_idx = start_idx + window_size
-            segments[i] = self.data[start_idx:end_idx] * hamming_window
-        self.data = segments
+            for j in range(n_channels):
+                segmented_data[i, :, j] = self.data[start_idx:end_idx, j] * hamming_window
+        self.data = segmented_data
 
     def detect_peak_frequency(self, fs=100, low_freq=3, high_freq=8, ar_order=6):
         """
