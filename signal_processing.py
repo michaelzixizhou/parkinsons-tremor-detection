@@ -21,6 +21,9 @@ def bandpass_filter(data, fs=100, lowcut=1.0, highcut=30.0, numtaps=101):
         fs: Sample frequency.
         lowcut: Lower cut-off frequency.
         highcut: Upper cut-off.
+
+    Returns:
+        Bandpass filtered data.
     """
     pass
 
