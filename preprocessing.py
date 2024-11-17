@@ -3,7 +3,6 @@ import numpy as np
 from scipy.signal import lfilter, firwin, filtfilt, savgol_filter, hamming, find_peaks
 from spectrum import arburg
 
-
 class AccelerometerData(DataLoader):
     def __init__(self, file_path, frequency):
         super().__init__(
@@ -12,7 +11,7 @@ class AccelerometerData(DataLoader):
                 "freq(Hz)": frequency,
             },
         )
-        self.label = []
+        self.features = [] # (start, end, duration)
 
     def print_data(self):
         # Access the data
@@ -121,7 +120,7 @@ class AccelerometerData(DataLoader):
         for i in range(self.data.shape[0]):
             self.data[i] = 1 if self.data[i] > threshold else 0
 
-    def _label(self, threshold=3):
+    def _feature_extraction(self, threshold=3):
         start = None
         for i in range(self.data.shape[0]):
             if self.data[i] == 1:
@@ -131,7 +130,7 @@ class AccelerometerData(DataLoader):
                 if start is not None:
                     end = i - 1
                     if end - start + 1 > threshold:
-                        self.label.append(start)
+                        self.label.append((start, end, end - start + 1))
                     start = None
 
     def preprocess_data(self):
