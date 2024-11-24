@@ -1,4 +1,5 @@
 import pickle
+import mne
 
 class DataLoader:
     def __init__(self, file_path, meta_data={}):
@@ -11,8 +12,13 @@ class DataLoader:
             self._load_data()
     
     def _load_data(self):
-        with open(self.file_path, "rb") as f:
-            self.data = pickle.load(f)
+        if self.file_path.endswith('.pkl'):
+            with open(self.file_path, "rb") as f:
+                self.data = pickle.load(f)
+        elif self.file_path.endswith('.fif'):
+            self.data = mne.io.read_raw_fif(self.file_path, preload=True)
+        else:
+            raise ValueError("Unsupported file format")
 
     def _get_data(self):
         return self.data
