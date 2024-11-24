@@ -8,6 +8,7 @@ if __name__ == "__main__":
     accelerometer_data.plot_data()
     accelerometer_data.preprocess_data()
     accelerometer_data.plot_data()
+    accelerometer_data.visualize_features()
 
 
 # Generate sample frequency-time domain data

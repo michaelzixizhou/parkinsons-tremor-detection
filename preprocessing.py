@@ -98,6 +98,7 @@ class AccelerometerData(DataLoader):
         """
         new_data = [[], [], []]
         from pylab import plot, log10, legend, show
+        curr_max = 0
         for i in range(3):
             for d in self.data[i]:
                 # Step 1: Fit AR model to the windowed data
@@ -106,7 +107,8 @@ class AccelerometerData(DataLoader):
                 except Exception as e:
                     print(f"Error in AR model fitting: {e}")
                     return 1
-
+                
+                print(noise_variance)
                 # Step 2: Calculate the PSD using the AR coefficients
                 psd = arma2psd(ar_coeffs, sides='default', norm=True) * noise_variance
                 nfft = len(psd)  # PSD length matches arma2psd's output
@@ -130,11 +132,14 @@ class AccelerometerData(DataLoader):
 
                 if peak_frequency == 3.0036630036630036:
                     new_data[i].append(1)
-                    print(1)
+                    # print(1)
                 else:
-                    print(peak_frequency)
-
+                    # print(peak_frequency)
+                    if peak_frequency > curr_max:
+                        curr_max = peak_frequency
                     new_data[i].append(peak_frequency)
+
+            print("Peak power:", curr_max)
 
         self.data = new_data
         # print(new_data)
@@ -146,7 +151,7 @@ class AccelerometerData(DataLoader):
     def _multiply(self):
         self.data = self.data[0] * self.data[1] * self.data[2]
 
-    def _thresholding(self, threshold=3.5):
+    def _thresholding(self, threshold=20):
         for i in range(self.data.shape[0]):
             self.data[i] = 1 if self.data[i] > threshold else 0
 
@@ -202,6 +207,7 @@ class AccelerometerData(DataLoader):
         print("Feature extraction")
         self._feature_extraction()
         self.visualize_features()
+
 
     def plot_data(self, t_start=0, t_end=None):
         import matplotlib.pyplot as plt
