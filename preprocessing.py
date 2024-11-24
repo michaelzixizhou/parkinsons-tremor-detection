@@ -3,6 +3,7 @@ import numpy as np
 from scipy.signal import lfilter, firwin, filtfilt, savgol_filter, find_peaks
 from scipy.signal.windows import hamming
 from spectrum import arburg, arma2psd
+import matplotlib.pyplot as plt
 
 
 class AccelerometerData(DataLoader):
@@ -99,7 +100,6 @@ class AccelerometerData(DataLoader):
         for i in range(3):
             for d in self.data[i]:
                 # Step 1: Fit AR model to the windowed data
-
                 try:
                     ar_coeffs, noise_variance, _ = arburg(d, ar_order)
                 except Exception as e:
@@ -107,17 +107,17 @@ class AccelerometerData(DataLoader):
                     return 1
 
                 # Step 2: Calculate the PSD using the AR coefficients
-                nfft = 1024  # Define the resolution of the FFT
-                freqs = np.linspace(
-                    0, fs / 2, nfft // 2 + 1
-                )  # Frequency axis (up to Nyquist)
-                psd = noise_variance / np.abs(np.fft.rfft(ar_coeffs, nfft)) ** 2
+                psd = arma2psd(ar_coeffs, sides='default') * noise_variance
+                nfft = len(psd)  # PSD length matches arma2psd's output
+                freqs = np.linspace(0, fs / 2, nfft)
+                        # Plot the PSD against the frequency
+
 
                 # Step 3: Filter the PSD and frequencies within the desired range
                 valid_indices = (freqs >= low_freq) & (freqs <= high_freq)
                 filtered_freqs = freqs[valid_indices]
                 filtered_psd = psd[valid_indices]
-
+                
                 # Step 4: Identify the peak frequency
                 if filtered_psd.size > 0:
                     peak_index = np.argmax(filtered_psd)
@@ -125,10 +125,11 @@ class AccelerometerData(DataLoader):
                     new_data[i].append(peak_frequency)
                 else:
                     # Return 1 if no peak is found within the tremor frequency range
+                    print("entered")
                     new_data[i].append(1)
 
         self.data = new_data
-        print(self.data)
+        # print(new_data)
 
     def _smooth_data(self, window_size=50):
         self.data = savgol_filter(self.data, window_size, 3)
