@@ -19,7 +19,7 @@ class AccelerometerData(DataLoader):
     def print_data(self):
         # Access the data
         print("Accelerometer data shape:", self.data.shape)
-        print("Accelerometer data:", self.data)
+        print("Accelerometer data (first 10):", self.data[:10])
 
     # Remove drift
     def _remove_drift(self, window_size=50):
@@ -162,6 +162,26 @@ class AccelerometerData(DataLoader):
                     if end - start + 1 > threshold:
                         self.features.append((start, end, end - start + 1))
                     start = None
+        return self.features
+    
+    def visualize_features(self):
+        """
+        Visualizes the extracted features on the accelerometer data.
+        """
+        time = np.arange(self.data.shape[0])
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(time, self.data, label="Processed Data")
+
+        for (start, end, duration) in self.features:
+            plt.axvspan(start, end, color='red', alpha=0.3)
+
+        plt.title("Accelerometer Data with Extracted Features")
+        plt.xlabel("Time (s)")
+        plt.ylabel("Label")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
 
     def preprocess_data(self):
         print("Drift removal")
@@ -177,44 +197,59 @@ class AccelerometerData(DataLoader):
         self._smooth_data()
         print("Multiply")
         self._multiply()
+        '''
         print("Thresholding")
         self._thresholding()
+        print("Feature extraction")
+        return self._feature_extraction()
+        '''
 
     def plot_data(self, t_start=0, t_end=None):
         import matplotlib.pyplot as plt
 
-        time = np.arange(self.data.shape[1]) / self.meta_data["freq(Hz)"]
+        if len(self.data.shape) >= 2: # if you plot three channels
+            time = np.arange(self.data.shape[1]) / self.meta_data["freq(Hz)"]
 
-        # Set t_end to the end of the data if not provided
-        if t_end is None:
-            t_end = time[-1]
+            # Set t_end to the end of the data if not provided
+            if t_end is None:
+                t_end = time[-1]
 
-        # Select the data in the specified time range
-        start_idx = int(t_start * self.meta_data["freq(Hz)"])
-        end_idx = int(t_end * self.meta_data["freq(Hz)"])
-        time_range = time[start_idx:end_idx]
-        data_range = self.data[:, start_idx:end_idx]
+            # Select the data in the specified time range
+            start_idx = int(t_start * self.meta_data["freq(Hz)"])
+            end_idx = int(t_end * self.meta_data["freq(Hz)"])
+            time_range = time[start_idx:end_idx]
+            data_range = self.data[:, start_idx:end_idx]
 
-        plt.subplot(3, 1, 1)
-        plt.plot(time_range, data_range[0], "r")
-        plt.title("Accelerometer Data - X Axis")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Amplitude")
-        plt.grid(True)
+            plt.subplot(3, 1, 1)
+            plt.plot(time_range, data_range[0], "r")
+            plt.title("Accelerometer Data - X Axis")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Amplitude")
+            plt.grid(True)
 
-        plt.subplot(3, 1, 2)
-        plt.plot(time_range, data_range[1], "g")
-        plt.title("Accelerometer Data - Y Axis")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Amplitude")
-        plt.grid(True)
+            plt.subplot(3, 1, 2)
+            plt.plot(time_range, data_range[1], "g")
+            plt.title("Accelerometer Data - Y Axis")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Amplitude")
+            plt.grid(True)
 
-        plt.subplot(3, 1, 3)
-        plt.plot(time_range, data_range[2], "b")
-        plt.title("Accelerometer Data - Z Axis")
-        plt.xlabel("Time (s)")
-        plt.ylabel("Amplitude")
-        plt.grid(True)
+            plt.subplot(3, 1, 3)
+            plt.plot(time_range, data_range[2], "b")
+            plt.title("Accelerometer Data - Z Axis")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Amplitude")
+            plt.grid(True)
 
-        plt.tight_layout()
-        plt.show()
+            plt.tight_layout()
+            plt.show()
+
+        else: # frequency vs time three channels combined
+            time = np.arange(self.data.shape[0])
+            plt.plot(time, self.data, "b")
+            plt.title("Accelerometer Data")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Label")
+            plt.grid(True)
+            plt.show()
+
