@@ -2,7 +2,8 @@ from data_loader import DataLoader
 import numpy as np
 from scipy.signal import lfilter, firwin, filtfilt, savgol_filter, find_peaks
 from scipy.signal.windows import hamming
-from spectrum import arburg
+from spectrum import arburg, arma2psd
+
 
 class AccelerometerData(DataLoader):
     def __init__(self, file_path, frequency):
@@ -12,7 +13,7 @@ class AccelerometerData(DataLoader):
                 "freq(Hz)": frequency,
             },
         )
-        self.features = [] # (start, end, duration)
+        self.features = []  # (start, end, duration)
 
     def print_data(self):
         # Access the data
@@ -63,7 +64,7 @@ class AccelerometerData(DataLoader):
             Array of segmented windows.
         """
         step_size = int(window_size * (1 - overlap_ratio))
-        n_channels, n_samples = self.data.shape 
+        n_channels, n_samples = self.data.shape
         n_windows = (n_samples - window_size) // step_size + 1
         hamming_window = np.hamming(window_size)
         channel_windowed = []
@@ -77,6 +78,8 @@ class AccelerometerData(DataLoader):
                 windowed_data[i, :] = segment * hamming_window
             channel_windowed.append(windowed_data)
         self.data = np.stack(channel_windowed, axis=0)
+
+        print("Shape after window segmenting:", self.data.shape)
         return self.data
 
     def detect_peak_frequency(self, fs=100, low_freq=3, high_freq=8, ar_order=6):
@@ -95,35 +98,37 @@ class AccelerometerData(DataLoader):
 
         for i in range(3):
             for d in self.data[i]:
-                # Fit the data using Berg Method (use a library)
-                [A, P, K] = arburg(d, ar_order)
-                # Generate the frequency response from the AR coefficients
+                # Step 1: Fit AR model to the windowed data
+
+                try:
+                    ar_coeffs, noise_variance, _ = arburg(d, ar_order)
+                except Exception as e:
+                    print(f"Error in AR model fitting: {e}")
+                    return 1
+
+                # Step 2: Calculate the PSD using the AR coefficients
+                nfft = 1024  # Define the resolution of the FFT
                 freqs = np.linspace(
-                    0, fs / 2, 512
-                )  # Frequency range up to Nyquist frequency
-                _, h = np.linalg.eigh(
-                    np.polyval(A, np.exp(-1j * 2 * np.pi * freqs / fs))
-                )
-                psd = np.abs(h) ** 2
-                # Normalize the power spectral density (PSD)
-                psd /= np.sum(psd)
-                # Find the frequency bin corresponding to the maximum power
-                peaks, _ = find_peaks(psd)
-                if peaks.size == 0:
-                    new_data[i].append(1)  # No peaks detected
-                    return
-                # Convert peak indices to frequencies
-                peak_freqs = freqs[peaks]
-                # Filter peaks within the desired frequency range
-                tremor_peaks = peak_freqs[
-                    (peak_freqs >= low_freq) & (peak_freqs <= high_freq)
-                ]
-                # Return the dominant tremor frequency, if any
-                if tremor_peaks.size > 0:
-                    new_data[i].append(tremor_peaks[np.argmax(psd[peaks])])
+                    0, fs / 2, nfft // 2 + 1
+                )  # Frequency axis (up to Nyquist)
+                psd = noise_variance / np.abs(np.fft.rfft(ar_coeffs, nfft)) ** 2
+
+                # Step 3: Filter the PSD and frequencies within the desired range
+                valid_indices = (freqs >= low_freq) & (freqs <= high_freq)
+                filtered_freqs = freqs[valid_indices]
+                filtered_psd = psd[valid_indices]
+
+                # Step 4: Identify the peak frequency
+                if filtered_psd.size > 0:
+                    peak_index = np.argmax(filtered_psd)
+                    peak_frequency = filtered_freqs[peak_index]
+                    new_data[i].append(peak_frequency)
                 else:
+                    # Return 1 if no peak is found within the tremor frequency range
                     new_data[i].append(1)
-                    # No peak within the tremor ra
+
+        self.data = new_data
+        print(self.data)
 
     def _smooth_data(self, window_size=50):
         self.data = savgol_filter(self.data, window_size, 3)
@@ -150,14 +155,20 @@ class AccelerometerData(DataLoader):
                     start = None
 
     def preprocess_data(self):
+        print("Drift removal")
         self._remove_drift()
+        print("Bandpass filter")
         self._bandpass_filter()
-        print(self.data.shape)
+        print("Segment data")
         self.segment_data(300, 0.9)
+        print("Detect peak frequency")
         self.detect_peak_frequency()
-        #### 
+        ####
+        print("Smooth data")
         self._smooth_data()
+        print("Multiply")
         self._multiply()
+        print("Thresholding")
         self._thresholding()
 
     def plot_data(self, t_start=0, t_end=None):
