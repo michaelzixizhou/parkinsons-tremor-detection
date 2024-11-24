@@ -52,6 +52,7 @@ class AccelerometerData(DataLoader):
         high = highcut / nyquist
         b = firwin(numtaps=101, cutoff=[low, high], pass_zero=False)
         self.data = filtfilt(b, [1.0], self.data)
+        self.plot_data()
 
     # Windowing with Hamming Function
     def segment_data(self, window_size, overlap_ratio):
@@ -96,7 +97,7 @@ class AccelerometerData(DataLoader):
             Peak frequency if within tremor range, otherwise 1.
         """
         new_data = [[], [], []]
-
+        from pylab import plot, log10, legend, show
         for i in range(3):
             for d in self.data[i]:
                 # Step 1: Fit AR model to the windowed data
@@ -107,26 +108,33 @@ class AccelerometerData(DataLoader):
                     return 1
 
                 # Step 2: Calculate the PSD using the AR coefficients
-                psd = arma2psd(ar_coeffs, sides='default') * noise_variance
+                psd = arma2psd(ar_coeffs, sides='default', norm=True) * noise_variance
                 nfft = len(psd)  # PSD length matches arma2psd's output
                 freqs = np.linspace(0, fs / 2, nfft)
-                        # Plot the PSD against the frequency
-
+                # Plot the PSD against the frequency
 
                 # Step 3: Filter the PSD and frequencies within the desired range
                 valid_indices = (freqs >= low_freq) & (freqs <= high_freq)
                 filtered_freqs = freqs[valid_indices]
                 filtered_psd = psd[valid_indices]
                 
+                # print(filtered_psd[0])
+
                 # Step 4: Identify the peak frequency
-                if filtered_psd.size > 0:
-                    peak_index = np.argmax(filtered_psd)
-                    peak_frequency = filtered_freqs[peak_index]
-                    new_data[i].append(peak_frequency)
-                else:
-                    # Return 1 if no peak is found within the tremor frequency range
-                    print("entered")
+                # plot(10*log10(psd))
+                # show()
+
+                peak_index = np.argmax(filtered_psd)
+
+                peak_frequency = filtered_freqs[peak_index]
+
+                if peak_frequency == 3.0036630036630036:
                     new_data[i].append(1)
+                    print(1)
+                else:
+                    print(peak_frequency)
+
+                    new_data[i].append(peak_frequency)
 
         self.data = new_data
         # print(new_data)
