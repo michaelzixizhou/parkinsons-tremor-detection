@@ -192,17 +192,16 @@ class AccelerometerData(DataLoader):
         self.segment_data(300, 0.9)
         print("Detect peak frequency")
         self.detect_peak_frequency()
-        ####
         print("Smooth data")
         self._smooth_data()
         print("Multiply")
         self._multiply()
-        '''
+        self.plot_data()
         print("Thresholding")
         self._thresholding()
         print("Feature extraction")
-        return self._feature_extraction()
-        '''
+        self._feature_extraction()
+        self.visualize_features()
 
     def plot_data(self, t_start=0, t_end=None):
         import matplotlib.pyplot as plt
