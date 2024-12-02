@@ -1,5 +1,5 @@
 from preprocessing import AccelerometerData
-from eeg_preprocessing import EEGData
+from eeg_preprocessing import EEGDataLoader
 import numpy as np
 import argparse
 
@@ -25,9 +25,14 @@ if __name__ == "__main__":
 
     if args.eeg:
         eeg_data_file_path = "data/eeg_data/801_2_PD_REST-epo.fif"
-        eeg_data = EEGData(eeg_data_file_path, frequency=500)
-        eeg_data.visualize_data()
-        eeg_data.plot_psd()
+        loader = EEGDataLoader(eeg_data_file_path)
+        # loader.preprocess()
+        # psds, freqs = loader.extract_psd()
+        # loader.visualize_data()
+        loader.plot_psd()
+        loader._extract_psd()
+        psds, freq = loader.get_psd_features()
+        print(psds.shape)
 
     else:
         accelerometer_file_path = "data/accelerometer_data/809_1_accelerometer.pkl"
@@ -35,22 +40,4 @@ if __name__ == "__main__":
         accelerometer_data.plot_data()
         accelerometer_data.preprocess_data()
         accelerometer_data.plot_data()
-
-'''
-# Test the functions
-if __name__ == "__main__":
-    frequency = 100  # 100 Hz sampling frequency
-
-    # Create an instance of AccelerometerData
-    acc_data = AccelerometerData(file_path=None, frequency=frequency)
-
-    # Generate and set sample data
-    acc_data.data = generate_sample_data()
-
-    acc_data.plot_data()
-
-    acc_data.preprocess_data()
-
-    acc_data.plot_data()
-    # acc_data.visualize_features()
-'''
+        
