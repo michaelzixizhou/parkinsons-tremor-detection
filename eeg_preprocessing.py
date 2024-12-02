@@ -29,6 +29,58 @@ class EEGDataLoader:
             self.data.set_montage(mne.channels.make_standard_montage("standard_1020"))
         except Exception as e:
             raise ValueError(f"Error loading data: {e}")
+        
+     def label_tremor_events(self, tremor_events, event_id='tremor-onset'):
+        """
+        Labels tremor events in EEG data using start and end times.
+        
+        :param tremor_events: List or array of tuples representing tremor start and end times [(start1, end1), (start2, end2), ...].
+        :param event_id: The label to assign to the tremor onset events (default is 'tremor-onset').
+        :return: The raw EEG data with labeled events and the corresponding events array.
+        """
+        # Ensure tremor_events is a numpy array
+        tremor_events = np.array(tremor_events)
+
+        # Extract start and end times from the tremor events
+        start_times = tremor_events[:, 0]
+        end_times = tremor_events[:, 1]
+
+        # Convert start and end times to sample indices based on the raw sampling frequency
+        start_samples = (start_times * self.data.info['sfreq']).astype(int)
+        end_samples = (end_times * self.data.info['sfreq']).astype(int)
+
+        # Create events array: [onset_sample, 0, event_id]
+        events = np.column_stack((start_samples, np.zeros(len(start_samples)), np.ones(len(start_samples)) * 1))
+
+        # Create annotations for visualization
+        annotations = mne.Annotations(onset=start_times, duration=end_times - start_times, description=[event_id] * len(start_times))
+
+        # Set annotations in the raw data
+        self.data.set_annotations(annotations)
+
+        # Return the raw data with annotations and the events array
+        return self.data, events
+
+    def extract_epochs(self, event_id, tmin=-0.2, tmax=0.5):
+        """
+        Extract epochs from the raw EEG data.
+        """
+        if self.data is None:
+            raise ValueError("Data not loaded. Call load_data() first.")
+        
+        try:
+            events = mne.find_events(self.data)
+        except ValueError as e:
+            raise ValueError("No events found. Please label the data first using label_tremor_events().") from e
+       
+        epochs = mne.Epochs(self.data, events, event_id, tmin=tmin, tmax=tmax, baseline=(None,0), preload=True)
+        epochs.plot()
+        plt.show()
+
+        filename = self.file_path.split('/')[-1].replace('.fif', '-epo.fif')
+        epochs.save(filename, overwrite=True)
+        print(f"Epochs saved successfully as {filename}.")
+        self.epochs = epochs
 
     def preprocess(self):
         """
