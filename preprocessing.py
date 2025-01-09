@@ -5,7 +5,6 @@ from scipy.signal.windows import hamming
 from spectrum import arburg, arma2psd
 import matplotlib.pyplot as plt
 
-
 class AccelerometerData(DataLoader):
     def __init__(self, file_path, frequency):
         super().__init__(
@@ -97,7 +96,7 @@ class AccelerometerData(DataLoader):
             Peak frequency if within tremor range, otherwise 1.
         """
         new_data = [[], [], []]
-        from pylab import plot, log10, legend, show
+        # from pylab import plot, log10, legend, show
         curr_max = 0
         for i in range(3):
             for d in self.data[i]:
@@ -140,7 +139,6 @@ class AccelerometerData(DataLoader):
                     new_data[i].append(1)
                     continue 
                 
-                
                 freqs_filtered = freqs[peak_filtered_indices] #get frequency of interest 
                 psd_max_freq_index = np.argmax(psd[peak_filtered_indices]) #get index of the max peak within the range 
                 psd_filtered = psd[peak_filtered_indices] #get the psd that are within the range 
@@ -151,6 +149,8 @@ class AccelerometerData(DataLoader):
                     new_data[i].append(freqs_filtered[psd_max_freq_index])
                 else: 
                     new_data[i].append(1)
+            
+            # print("Peak power:", curr_max)
 
         self.data = new_data
 

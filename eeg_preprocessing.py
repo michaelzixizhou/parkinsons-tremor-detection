@@ -2,6 +2,7 @@ import mne
 from mne.preprocessing import ICA
 from mne.time_frequency import psd_array_welch
 import matplotlib.pyplot as plt
+from scipy.signal import lfilter
 import numpy as np
 
 class EEGDataLoader:
@@ -28,9 +29,9 @@ class EEGDataLoader:
             print(f"Data loaded: {self.data.info}")
             self.data.set_montage(mne.channels.make_standard_montage("standard_1020"))
         except Exception as e:
-            raise ValueError(f"Error loading data: {e}")
+            raise ValueError(f"Error loading data: {e}") from e
         
-     def label_tremor_events(self, tremor_events, event_id='tremor-onset'):
+    def label_tremor_events(self, tremor_events, event_id='tremor-onset'):
         """
         Labels tremor events in EEG data using start and end times.
         
@@ -82,7 +83,81 @@ class EEGDataLoader:
         print(f"Epochs saved successfully as {filename}.")
         self.epochs = epochs
 
-    def preprocess(self):
+    def segment_with_labels(self, timestamps):
+        """
+        Segment EEG data using MNE Epochs.
+
+        Parameters:
+        - raw_eeg: MNE Raw object (preprocessed EEG data).
+        - timestamps: List of tuples [(start, end, duration), ...] in seconds (tremor intervals).
+        - sfreq: Sampling frequency of the EEG data.
+
+        Returns:
+        - epochs_dict: Dictionary of MNE Epochs objects for 'Pre-tremor', 'Tremor', and 'Control'.
+        """
+        events = []  # To store event markers
+        sfreq = self.data.info['sfreq']
+
+        for idx, (start, end, duration) in enumerate(timestamps):
+            # Convert seconds to sample indices
+            start_idx = int(start * sfreq)
+            end_idx = int(end * sfreq)
+            
+            # Pre-tremor event (3 seconds before tremor onset)
+            if start_idx - int(3 * sfreq) >= 0:  # Ensure valid range
+                events.append([start_idx - int(3 * sfreq), 0, 1])  # Event ID 1 for Pre-tremor
+            
+            # Tremor event (3 seconds starting from tremor onset)
+            if start_idx + int(3 * sfreq) <= self.data.n_times:  # Ensure valid range
+                events.append([start_idx, 0, 2])  # Event ID 2 for Tremor
+            
+            # Control event (3 seconds before Pre-tremor)
+            if duration < 3:
+                end_idx = start_idx + int(3 * sfreq) # Ensure minimum 3-second window
+
+            # the bound is either the next pretremor or the end of the data 
+            if idx != len(timestamps) - 1:
+                bound = int(timestamps[idx+1][0] * sfreq) - int(3 * sfreq)
+            else:
+                bound = self.data.n_times
+
+            if end_idx + int(3 * sfreq) <= bound:  # Ensure non-overlapping with bound
+                events.append([end_idx, 0, 3])  # Event ID 3 for Control
+
+        # Convert events to NumPy array
+        events = np.array(events)
+
+        # Create Epochs
+        event_id = {'Pre-tremor': 1, 'Tremor': 2, 'Control': 3}
+        tmin, tmax = 0, 3  # 3-second epochs
+        epochs = mne.Epochs(self.data, events, event_id=event_id, tmin=tmin, tmax=tmax,
+                            baseline=None, preload=True)
+        
+        self.epochs = epochs
+        filename = self.file_path.split('/')[-1].replace('.fif', '-epo.fif')
+        epochs.save(filename, overwrite=True)
+        print(f"Epochs saved successfully as {filename}.")
+
+        # Split epochs into dictionary
+        epochs_dict = {
+            'Pre-tremor': epochs['Pre-tremor'],
+            'Tremor': epochs['Tremor'],
+            'Control': epochs['Control']
+        }
+        
+        return epochs_dict
+    
+    def plot_epochs(self):
+        """
+        Plot the segmented epochs.
+        """
+        if self.epochs is None:
+            raise ValueError("Epochs not extracted. Call any method that extract epochs first.")
+        
+        self.epochs.plot()
+        plt.show()
+
+    def preprocess(self, segment=False):
         """
         Apply preprocessing steps for raw EEG data.
         Includes ICA for artifact removal and PSD extraction.
@@ -93,31 +168,42 @@ class EEGDataLoader:
         # Apply preprocessing steps
         self._filter_data()
         self._apply_ica()
-        self._amplitude_scaling()
 
-        # Extract PSD after preprocessing
-        # This will be used for feature extraction
-        self._extract_psd()
-        return self.psds, self.freqs
+        # Segment data into eyes-open and eyes-closed
+        if segment:
+            events, event_dict = mne.events_from_annotations(self.data)
+            epochs = mne.Epochs(self.data, events, event_id=event_dict, tmin=-0.2, tmax=0.5, preload=True)
+            filename = self.file_path.split('/')[-1].replace('.fif', '-epo.fif')
+            epochs.save(filename, overwrite=True)
+            print(f"Epochs saved successfully as {filename}.")
+            self.epochs = epochs
 
     def _apply_ica(self, exclude=None):
         """
-        Apply ICA for artifact removal on raw EEG data.
+        Apply ICA for artifact removal
         """
         print("Applying ICA...")
         ica = ICA(n_components=20, random_state=97, max_iter=800)
         ica.fit(self.data)
+        ica.detect_artifacts(self.data) # use ADJUST to identify bad components
         ica.plot_properties(self.data, picks=exclude)
         self.data = ica.apply(self.data)
         print("ICA applied successfully.")
 
-    def _filter_data(self, l_freq=1, h_freq=49):
+    def _filter_data(self, l_freq=0.5, h_freq=50):
         """
-        Apply bandpass filter to raw EEG data.
-        :param l_freq: Lower frequency bound
-        :param h_freq: Higher frequency bound
+        Baseline correction with a moving average filter. 
+        Apply FIR filter to retain 0.5-50 Hz range
         """
-        self.data.filter(l_freq=l_freq, h_freq=h_freq)
+
+        def moving_average(data, window_size=100):
+            return lfilter([1.0/window_size] * window_size, 1, data)
+
+        for ch_idx in range(self.data.info['nchan']):
+            self.data._data[ch_idx] = moving_average(self.data._data[ch_idx])
+
+        self.data.filter(l_freq=l_freq, h_freq=h_freq, fir_design="firwin", phase='zero')
+
         print("Data filtered successfully")
     
     def plot_psd(self):
