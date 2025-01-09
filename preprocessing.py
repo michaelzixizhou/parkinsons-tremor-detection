@@ -218,8 +218,22 @@ class AccelerometerData(DataLoader):
         self._thresholding() #threshold of 10 elements is equivalent to 3 seconds with 90% overlap windows 
         print("Feature extraction")
         self._feature_extraction()
-        self.visualize_features()
 
+    def save_features(self, file_path=None):
+        """
+        Saves the extracted features to a text file.
+        """
+        
+        if len(self.features) == 0:
+            print("No features extracted")
+            return
+        
+        if file_path is None:
+            file_path = self.file_path.replace(".pkl", "_features.txt")
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            for feature in self.features:
+                f.write("%s\n" % (", ".join(map(str, feature))))
 
     def plot_data(self, t_start=0, t_end=None):
         import matplotlib.pyplot as plt
