@@ -1,9 +1,8 @@
-from data_loader import DataLoader
 import numpy as np
 from scipy.signal import lfilter, firwin, filtfilt, savgol_filter, find_peaks
-from scipy.signal.windows import hamming
 from spectrum import arburg, arma2psd
 import matplotlib.pyplot as plt
+from data_loader import DataLoader
 
 class AccelerometerPreprocessor(DataLoader):
     def __init__(self, file_path, frequency):
@@ -35,7 +34,7 @@ class AccelerometerPreprocessor(DataLoader):
         self.data = lfilter(b, a, self.data)
 
     # Bandpass filter
-    def _bandpass_filter(self, lowcut=1.0, highcut=30.0, fs=100):
+    def _bandpass_filter(self, lowcut=1.0, highcut=30.0, fs=100, plot=False):
         """
         Filters the signal to only retain components in the 1-30 Hz range.
         Args:
@@ -51,12 +50,16 @@ class AccelerometerPreprocessor(DataLoader):
         high = highcut / nyquist
         b = firwin(numtaps=101, cutoff=[low, high], pass_zero=False)
         self.data = filtfilt(b, [1.0], self.data)
-        self.plot_data()
+        if plot:
+            self.plot_data()
 
     # Windowing with Hamming Function
     def segment_data(self, window_size, overlap_ratio):
         """
         Segments data into overlapping windows with Hamming weights.
+        Hamming windows taper the edges of the windows to reduce spectral leakage.
+        This makes more suitable for Fourier or AR analysis.
+        Takes input of shape (n_channels, n_samples) and returns (n_channels, n_windows, window_size).
         Args:
             data: Array of accelerometer data.
             window_size: Number of samples per window.
@@ -86,6 +89,9 @@ class AccelerometerPreprocessor(DataLoader):
     def detect_peak_frequency(self, fs=100, low_freq=3, high_freq=8, ar_order=6):
         """
         Detects peak frequency using an autoregressive model.
+        For each window segment, the AR model is fitted to the data and the PSD is calculated.
+        The peak frequency is then identified within the tremor range (3-8 Hz).
+        The returned peak frequency is the frequency with the highest PSD amplitude.
         Args:
             window: Windowed segment of accelerometer data.
             fs: Sampling frequency.
@@ -97,7 +103,7 @@ class AccelerometerPreprocessor(DataLoader):
         """
         new_data = [[], [], []]
         # from pylab import plot, log10, legend, show
-        curr_max = 0
+        # curr_max = 0
         for i in range(3):
             for d in self.data[i]:
                 # Step 1: Fit AR model to the windowed data
@@ -107,13 +113,12 @@ class AccelerometerPreprocessor(DataLoader):
                     print(f"Error in AR model fitting: {e}")
                     return 1
                 
-                #print(noise_variance)
+                # print(noise_variance)
                 # Step 2: Calculate the PSD using the AR coefficients
                 psd = arma2psd(ar_coeffs, rho = noise_variance) #* noise_variance
                 psd = psd[len(psd):len(psd)//2:-1] #get only half of the graph 
                 nfft = len(psd)  # PSD length matches arma2psd's output
                 freqs = np.linspace(0, fs / 2, nfft)
-
 
                 # Step 4: Identify the peak frequency
                 
@@ -121,41 +126,70 @@ class AccelerometerPreprocessor(DataLoader):
 
                 if peaks.size > 0:
                     max_peak = max(psd[peaks]) #get max peak to filter out low vibrations 
-                else: 
+                else:
                     new_data[i].append(1) #if no peak exists, append 1
                     continue
   
-                #get frequency at which peaks are foudn 
+                # get frequency at which peaks are found
                 freq_peaks = freqs[peaks]
-                #filter out irrelevant frequency
+                # filter out irrelevant frequency
                 freq_indices = (freq_peaks < high_freq) & (freq_peaks > low_freq)
-                #get the frequnecies that are within the low and high range
+                # get the frequnecies that are within the low and high range
                 filtered_freqs = freq_peaks[freq_indices]
             
-                #there are frequencies within the range, find the corrsponding indices on freqs, else append 1
+                # there are frequencies within the range, find the corrsponding indices on freqs, else append 1
                 if filtered_freqs.size > 0:
                     peak_filtered_indices = (freqs == filtered_freqs)
-                else: 
+                else:
                     new_data[i].append(1)
-                    continue 
+                    continue
                 
-                freqs_filtered = freqs[peak_filtered_indices] #get frequency of interest 
+                freqs_filtered = freqs[peak_filtered_indices] # get frequency of interest 
                 psd_max_freq_index = np.argmax(psd[peak_filtered_indices]) #get index of the max peak within the range 
-                psd_filtered = psd[peak_filtered_indices] #get the psd that are within the range 
+                psd_filtered = psd[peak_filtered_indices] # get the psd that are within the range 
 
-                #detect only if the amplitude is greater than maxpeak amplitude / 10
+                # detect only if the amplitude is greater than maxpeak amplitude / 10
                 if len(filtered_freqs) > 0 and np.any(psd_filtered[psd_max_freq_index] > max_peak / 10):
-                    #append the frequecy value with the highest psd ampltiude value 
+                    # append the frequecy value with the highest psd ampltiude value
                     new_data[i].append(freqs_filtered[psd_max_freq_index])
-                else: 
+                else:
                     new_data[i].append(1)
             
             # print("Peak power:", curr_max)
 
-        self.data = new_data
+        self.data = np.array(new_data)
+        
+    def map_windows_to_timesteps(self, window_size, overlap_ratio):
+        """
+        Maps window-based dominant frequencies to the original time scale of n_timesteps.
+        Args:
+            window_size (int): Number of samples per window.
+            overlap_ratio (float): Fraction of overlap between consecutive windows.
+        Returns:
+            np.ndarray: Array of shape (n_channels, n_timesteps) with mapped dominant frequencies.
+        """
+        step_size = int(window_size * (1 - overlap_ratio))  # Step size between windows
+        n_windows = self.data.shape[1]  # Number of windows
+        n_channels = self.data.shape[0]  # Number of channels
+
+        # Initialize output array
+        time_freq_map = np.zeros((n_channels, self.n_timesteps))
+
+        for ch in range(n_channels):  # Process each channel independently
+            for i in range(n_windows):
+                # Calculate the range of timesteps covered by the current window
+                start_idx = i * step_size
+                end_idx = min(start_idx + window_size, self.n_timesteps)
+                
+                # Assign the dominant frequency to all timesteps in the window range
+                time_freq_map[ch, start_idx:end_idx] = self.data[ch, i]
+
+        self.data = time_freq_map
+
+        print("Shape after mapping:", self.data.shape)
 
     def _smooth_data(self, window_size=50):
-        self.data = savgol_filter(self.data, window_size, 3)
+        self.data = savgol_filter(self.data, window_size, 3) # does not change the shape of the data
         # self.data = np.convolve(self.data, np.ones(window_size)/window_size, mode='same')
 
     def _multiply(self):
@@ -165,8 +199,7 @@ class AccelerometerPreprocessor(DataLoader):
         for i in range(self.data.shape[0]):
             self.data[i] = 1 if self.data[i] > threshold else 0
 
-
-    def _feature_extraction(self, threshold=10):
+    def _feature_extraction(self, threshold=3):
         start = None
         for i in range(self.data.shape[0]):
             if self.data[i] == 1:
@@ -175,7 +208,9 @@ class AccelerometerPreprocessor(DataLoader):
             else:
                 if start is not None:
                     end = i - 1
-                    if end - start + 1 > threshold:
+                    # If the duration of the feature is greater than the threshold
+                    # Need to convert from time steps to seconds
+                    if end - start + 1 > threshold * self.meta_data["freq(Hz)"]:
                         self.features.append((start, end, end - start + 1))
                     start = None
         return self.features
@@ -183,6 +218,7 @@ class AccelerometerPreprocessor(DataLoader):
     def visualize_features(self):
         """
         Visualizes the extracted features on the accelerometer data.
+        NOTE: This uses tiimestep, but it should also work with time.
         """
         time = np.arange(self.data.shape[0])
 
@@ -193,7 +229,7 @@ class AccelerometerPreprocessor(DataLoader):
             plt.axvspan(start, end, color='red', alpha=0.3)
 
         plt.title("Accelerometer Data with Extracted Features")
-        plt.xlabel("Time (s)")
+        plt.xlabel("Timesteps")
         plt.ylabel("Label")
         plt.legend()
         plt.grid(True)
@@ -202,20 +238,31 @@ class AccelerometerPreprocessor(DataLoader):
     def preprocess_data(self):
         print("Drift removal")
         self._remove_drift()
+        
         print("Bandpass filter")
         self._bandpass_filter()
+        
         print("Segment data")
         self.segment_data(300, 0.9)
+
         print("Detect peak frequency")
         self.detect_peak_frequency()
+
+        print("Map dominant frequencies to time")
+        self.map_windows_to_timesteps(300, 0.9)
+
         print("Smooth data")
-        
         self._smooth_data()
+
         print("Multiply")
         self._multiply()
+
+        print("Plot data")
         self.plot_data()
+
         print("Thresholding")
-        self._thresholding() #threshold of 10 elements is equivalent to 3 seconds with 90% overlap windows 
+        self._thresholding()
+        
         print("Feature extraction")
         self._feature_extraction()
 
@@ -229,14 +276,17 @@ class AccelerometerPreprocessor(DataLoader):
             return
         
         if file_path is None:
-            file_path = "processed/accelerometer_data" + self.file_path.split('/')[-1].replace(".pkl", "_features.txt")
+            file_path = "processed/accelerometer_data/" + self.file_path.split('/')[-1].replace(".pkl", "_features.txt")
         
         with open(file_path, 'w', encoding='utf-8') as f:
             for feature in self.features:
                 f.write("%s\n" % (", ".join(map(str, feature))))
 
     def plot_data(self, t_start=0, t_end=None):
-        import matplotlib.pyplot as plt
+        """
+        Plots the accelerometer data across the three axes.
+        Or plots the frequency vs time if the data is already processed.
+        """
 
         if len(self.data.shape) >= 2: # if you plot three channels
             time = np.arange(self.data.shape[1]) / self.meta_data["freq(Hz)"]
@@ -279,7 +329,7 @@ class AccelerometerPreprocessor(DataLoader):
             time = np.arange(self.data.shape[0])
             plt.plot(time, self.data, "b")
             plt.title("Accelerometer Data")
-            plt.xlabel("Time (s)")
+            plt.xlabel("Timesteps")
             plt.ylabel("Label")
             plt.grid(True)
             plt.show()
