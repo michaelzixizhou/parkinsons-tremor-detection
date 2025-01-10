@@ -71,3 +71,13 @@ class EEGDataLoader:
         if self.epochs is None:
             raise ValueError("Data not loaded. Call load_data() first.")
         self.epochs.plot()
+
+    def plot_events(self):
+        """
+        Plot the events.
+        """
+
+        if self.epochs is None:
+            raise ValueError("Data not loaded. Call load_data() first.")
+        
+        mne.viz.plot_events(self.epochs.events, sfreq=self.epochs.info['sfreq'])
