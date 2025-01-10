@@ -5,7 +5,7 @@ from scipy.signal.windows import hamming
 from spectrum import arburg, arma2psd
 import matplotlib.pyplot as plt
 
-class AccelerometerData(DataLoader):
+class AccelerometerPreprocessor(DataLoader):
     def __init__(self, file_path, frequency):
         super().__init__(
             file_path,
@@ -229,7 +229,7 @@ class AccelerometerData(DataLoader):
             return
         
         if file_path is None:
-            file_path = self.file_path.replace(".pkl", "_features.txt")
+            file_path = "processed/accelerometer_data" + self.file_path.split('/')[-1].replace(".pkl", "_features.txt")
         
         with open(file_path, 'w', encoding='utf-8') as f:
             for feature in self.features:

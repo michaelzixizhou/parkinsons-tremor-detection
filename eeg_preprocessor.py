@@ -5,7 +5,8 @@ import matplotlib.pyplot as plt
 from scipy.signal import lfilter
 import numpy as np
 
-class EEGDataLoader:
+# NOTE: This only works for RAW EEG data, not for EPOCHS
+class EEGPreprocessor:
     def __init__(self, file_path):
         """
         Initialize the EEGDataLoader with a path to a raw EEG file.
@@ -31,6 +32,7 @@ class EEGDataLoader:
         except Exception as e:
             raise ValueError(f"Error loading data: {e}") from e
         
+    @DeprecationWarning
     def label_tremor_events(self, tremor_events, event_id='tremor-onset'):
         """
         Labels tremor events in EEG data using start and end times.
@@ -62,6 +64,7 @@ class EEGDataLoader:
         # Return the raw data with annotations and the events array
         return self.data, events
 
+    @DeprecationWarning
     def extract_epochs(self, event_id, tmin=-0.2, tmax=0.5):
         """
         Extract epochs from the raw EEG data.
@@ -83,7 +86,56 @@ class EEGDataLoader:
         print(f"Epochs saved successfully as {filename}.")
         self.epochs = epochs
 
-    def segment_with_labels(self, timestamps):
+    def preprocess(self, segment=False):
+        """
+        Apply preprocessing steps for raw EEG data.
+        Includes ICA for artifact removal and PSD extraction.
+        """
+        if self.data is None:
+            raise ValueError("Data not loaded. Call load_data() first.")
+
+        # Apply preprocessing steps
+        self._filter_data()
+        self._apply_ica()
+
+        # Segment data into eyes-open and eyes-closed ONLY if it is already labelled
+        if segment:
+            events, event_dict = mne.events_from_annotations(self.data)
+            epochs = mne.Epochs(self.data, events, event_id=event_dict, tmin=-0.2, tmax=0.5, preload=True)
+            filename = self.file_path.split('/')[-1].replace('.fif', '-epo.fif')
+            epochs.save(filename, overwrite=True)
+            print(f"Epochs saved successfully as {filename}.")
+            self.epochs = epochs
+
+    def _apply_ica(self, exclude=None, plot=False):
+        """
+        Apply ICA for artifact removal
+        """
+        print("Applying ICA...")
+        ica = ICA(n_components=20, random_state=97, max_iter=800)
+        ica.fit(self.data)
+        if plot:
+            ica.plot_properties(self.data, picks=exclude)
+        self.data = ica.apply(self.data)
+        print("ICA applied successfully.")
+
+    def _filter_data(self, l_freq=0.5, h_freq=50):
+        """
+        Baseline correction with a moving average filter. 
+        Apply FIR filter to retain 0.5-50 Hz range
+        """
+
+        def moving_average(data, window_size=100):
+            return lfilter([1.0/window_size] * window_size, 1, data)
+
+        for ch_idx in range(self.data.info['nchan']):
+            self.data._data[ch_idx] = moving_average(self.data._data[ch_idx])
+
+        self.data.filter(l_freq=l_freq, h_freq=h_freq, fir_design="firwin", phase='zero')
+
+        print("Data filtered successfully")
+
+    def segment_with_labels(self, timestamps, save=False):
         """
         Segment EEG data using MNE Epochs.
 
@@ -110,22 +162,26 @@ class EEGDataLoader:
             # Tremor event (3 seconds starting from tremor onset)
             if start_idx + int(3 * sfreq) <= self.data.n_times:  # Ensure valid range
                 events.append([start_idx, 0, 2])  # Event ID 2 for Tremor
-            
-            # Control event (3 seconds before Pre-tremor)
+
+            # Adjust end_idx for short tremors
             if duration < 3:
-                end_idx = start_idx + int(3 * sfreq) # Ensure minimum 3-second window
+                end_idx = start_idx + int(3 * sfreq)  # Ensure a minimum 3-second window
 
-            # the bound is either the next pretremor or the end of the data 
-            if idx != len(timestamps) - 1:
-                bound = int(timestamps[idx+1][0] * sfreq) - int(3 * sfreq)
+            # Determine bound for Control segment
+            if idx != len(timestamps) - 1:  # If not the last tremor event
+                next_pre_tremor_idx = int(timestamps[idx + 1][0] * sfreq) - int(3 * sfreq)
+                bound = min(next_pre_tremor_idx, self.data.n_times)
             else:
-                bound = self.data.n_times
+                bound = self.data.n_times  # Last segment bounds to the end of the data
 
-            if end_idx + int(3 * sfreq) <= bound:  # Ensure non-overlapping with bound
+            # Add Control event if valid
+            if end_idx + int(3 * sfreq) <= bound:  # Ensure non-overlap with the next Pre-tremor
                 events.append([end_idx, 0, 3])  # Event ID 3 for Control
 
         # Convert events to NumPy array
         events = np.array(events)
+
+        print(f"Extracted {len(events)} events for segmentation.")
 
         # Create Epochs
         event_id = {'Pre-tremor': 1, 'Tremor': 2, 'Control': 3}
@@ -134,9 +190,11 @@ class EEGDataLoader:
                             baseline=None, preload=True)
         
         self.epochs = epochs
-        filename = self.file_path.split('/')[-1].replace('.fif', '-epo.fif')
-        epochs.save(filename, overwrite=True)
-        print(f"Epochs saved successfully as {filename}.")
+
+        if save:
+            filename = 'processed/eeg_data/' + self.file_path.split('/')[-1]
+            epochs.save(filename, overwrite=True)
+            print(f"Epochs saved successfully as {filename}.")
 
         # Split epochs into dictionary
         epochs_dict = {
@@ -156,55 +214,6 @@ class EEGDataLoader:
         
         self.epochs.plot()
         plt.show()
-
-    def preprocess(self, segment=False):
-        """
-        Apply preprocessing steps for raw EEG data.
-        Includes ICA for artifact removal and PSD extraction.
-        """
-        if self.data is None:
-            raise ValueError("Data not loaded. Call load_data() first.")
-
-        # Apply preprocessing steps
-        self._filter_data()
-        self._apply_ica()
-
-        # Segment data into eyes-open and eyes-closed
-        if segment:
-            events, event_dict = mne.events_from_annotations(self.data)
-            epochs = mne.Epochs(self.data, events, event_id=event_dict, tmin=-0.2, tmax=0.5, preload=True)
-            filename = self.file_path.split('/')[-1].replace('.fif', '-epo.fif')
-            epochs.save(filename, overwrite=True)
-            print(f"Epochs saved successfully as {filename}.")
-            self.epochs = epochs
-
-    def _apply_ica(self, exclude=None):
-        """
-        Apply ICA for artifact removal
-        """
-        print("Applying ICA...")
-        ica = ICA(n_components=20, random_state=97, max_iter=800)
-        ica.fit(self.data)
-        ica.detect_artifacts(self.data) # use ADJUST to identify bad components
-        ica.plot_properties(self.data, picks=exclude)
-        self.data = ica.apply(self.data)
-        print("ICA applied successfully.")
-
-    def _filter_data(self, l_freq=0.5, h_freq=50):
-        """
-        Baseline correction with a moving average filter. 
-        Apply FIR filter to retain 0.5-50 Hz range
-        """
-
-        def moving_average(data, window_size=100):
-            return lfilter([1.0/window_size] * window_size, 1, data)
-
-        for ch_idx in range(self.data.info['nchan']):
-            self.data._data[ch_idx] = moving_average(self.data._data[ch_idx])
-
-        self.data.filter(l_freq=l_freq, h_freq=h_freq, fir_design="firwin", phase='zero')
-
-        print("Data filtered successfully")
     
     def plot_psd(self):
         '''
