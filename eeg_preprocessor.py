@@ -135,21 +135,29 @@ class EEGPreprocessor:
 
         print("Data filtered successfully")
 
-    def segment_with_labels(self, timestamps, save=False):
+    def segment_with_labels(self, timestamps=None, labels_path=None, save=False):
         """
         Segment EEG data using MNE Epochs.
         NOTE: This methods assumes that timesteps are in timesteps, not seconds.
 
         Parameters:
-        - raw_eeg: MNE Raw object (preprocessed EEG data).
         - timestamps: List of tuples [(start, end, duration), ...] in timesteps (tremor intervals).
-        - sfreq: Sampling frequency of the EEG data.
+        - labels_path: Path to the labels file (optional), must be csv file
+        - save: Save the segmented epochs to a file
 
         Returns:
         - epochs_dict: Dictionary of MNE Epochs objects for 'Pre-tremor', 'Tremor', and 'Control'.
         """
         events = []  # To store event markers
         sfreq = self.data.info['sfreq']
+
+        # Load timestamps from file if not provided
+        if timestamps is None:
+            if labels_path is None:
+                raise ValueError("Timestamps or labels path must be provided.")
+            with open(labels_path, 'r', encoding='utf-8') as file:
+                next(file)  # Skip the first line
+                timestamps = [tuple(map(int, line.strip().split(','))) for line in file if line.strip()]
 
         for idx, (start, end, duration) in enumerate(timestamps):
             
@@ -179,8 +187,6 @@ class EEGPreprocessor:
 
         # Convert events to NumPy array
         events = np.array(events)
-
-        print(events)
 
         print(f"Extracted {len(events)} events for segmentation.")
 
@@ -214,6 +220,17 @@ class EEGPreprocessor:
             raise ValueError("Epochs not extracted. Call any method that extract epochs first.")
         
         self.epochs.plot()
+        plt.show()
+
+    def plot_events(self):
+        """
+        Plot the events in the EEG data.
+        """
+        if self.data is None:
+            raise ValueError("Data not loaded. Call load_data() first.")
+        
+        events = mne.find_events(self.epochs)
+        mne.viz.plot_events(self.epochs, self.data.info['sfreq'])
         plt.show()
     
     def plot_psd(self):

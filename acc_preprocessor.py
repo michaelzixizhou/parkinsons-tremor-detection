@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from scipy.signal import lfilter, firwin, filtfilt, savgol_filter, find_peaks
 from spectrum import arburg, arma2psd
@@ -54,7 +55,7 @@ class AccelerometerPreprocessor(DataLoader):
             self.plot_data()
 
     # Windowing with Hamming Function
-    def segment_data(self, window_size, overlap_ratio):
+    def _segment_data(self, window_size, overlap_ratio):
         """
         Segments data into overlapping windows with Hamming weights.
         Hamming windows taper the edges of the windows to reduce spectral leakage.
@@ -86,7 +87,7 @@ class AccelerometerPreprocessor(DataLoader):
         print("Shape after window segmenting:", self.data.shape)
         return self.data
 
-    def detect_peak_frequency(self, fs=100, low_freq=3, high_freq=8, ar_order=6):
+    def _detect_peak_frequency(self, fs=100, low_freq=3, high_freq=8, ar_order=6):
         """
         Detects peak frequency using an autoregressive model.
         For each window segment, the AR model is fitted to the data and the PSD is calculated.
@@ -159,9 +160,15 @@ class AccelerometerPreprocessor(DataLoader):
 
         self.data = np.array(new_data)
         
-    def map_windows_to_timesteps(self, window_size, overlap_ratio):
+    def _map_windows_to_timesteps(self, window_size, overlap_ratio):
         """
         Maps window-based dominant frequencies to the original time scale of n_timesteps.
+        The dominant frequency for each window segments is upsampled to match the
+        length of the original accelerometer data. This results in a time-frequency representation
+        of the accelerometer data cross the three axes.
+
+        NOTE: The window size and overlap ratio should match the values used in _segment_data().
+
         Args:
             window_size (int): Number of samples per window.
             overlap_ratio (float): Fraction of overlap between consecutive windows.
@@ -193,13 +200,26 @@ class AccelerometerPreprocessor(DataLoader):
         # self.data = np.convolve(self.data, np.ones(window_size)/window_size, mode='same')
 
     def _multiply(self):
-        self.data = self.data[0] * self.data[1] * self.data[2]
+        self.data = np.prod(self.data, axis=0)
 
     def _thresholding(self, threshold=3.5):
-        for i in range(self.data.shape[0]):
-            self.data[i] = 1 if self.data[i] > threshold else 0
+        self.data = np.where(self.data > threshold, 1, 0)
 
     def _feature_extraction(self, threshold=3):
+        """
+        Extracts features from the data based on a threshold.
+
+        This method scans through the data to identify segments where the data equals 1.
+        It records the start and end indices of these segments and calculates their duration.
+        If the duration of a segment exceeds the specified threshold (converted from time steps to seconds),
+        the segment is added to the features list.
+
+        Args:
+            threshold (int, optional): The minimum duration (in seconds) for a segment to be considered a feature. Defaults to 3.
+
+        Returns:
+            np.ndarray: An array of tuples, each containing the start index, end index, and duration of a feature.
+        """
         start = None
         for i in range(self.data.shape[0]):
             if self.data[i] == 1:
@@ -236,6 +256,11 @@ class AccelerometerPreprocessor(DataLoader):
         plt.show()
 
     def preprocess_data(self):
+        """
+        Preprocesses the accelerometer data to extract features.
+        Returns the extracted features as a list of tuples (start, end, duration).
+        """
+
         print("Drift removal")
         self._remove_drift()
         
@@ -243,13 +268,13 @@ class AccelerometerPreprocessor(DataLoader):
         self._bandpass_filter()
         
         print("Segment data")
-        self.segment_data(300, 0.9)
+        self._segment_data(300, 0.9)
 
         print("Detect peak frequency")
-        self.detect_peak_frequency()
+        self._detect_peak_frequency()
 
         print("Map dominant frequencies to time")
-        self.map_windows_to_timesteps(300, 0.9)
+        self._map_windows_to_timesteps(300, 0.9)
 
         print("Smooth data")
         self._smooth_data()
@@ -264,23 +289,32 @@ class AccelerometerPreprocessor(DataLoader):
         self._thresholding()
         
         print("Feature extraction")
-        self._feature_extraction()
+        return self._feature_extraction()
 
     def save_features(self, file_path=None):
         """
-        Saves the extracted features to a text file.
+        Saves the extracted features to a CSV file.
+        
+        Args:
+            file_path (str): Path to save the file. Defaults to a generated path based on `self.file_path`.
         """
-        
         if len(self.features) == 0:
-            print("No features extracted")
-            return
-        
+            raise ValueError("No features to save. Run feature extraction first.")
+
+        # Default file path generation
         if file_path is None:
-            file_path = "processed/accelerometer_data/" + self.file_path.split('/')[-1].replace(".pkl", "_features.txt")
-        
-        with open(file_path, 'w', encoding='utf-8') as f:
-            for feature in self.features:
-                f.write("%s\n" % (", ".join(map(str, feature))))
+            base_name = os.path.splitext(os.path.basename(self.file_path))[0]
+            file_path = f"processed/accelerometer_data/{base_name}_features.csv"
+
+        try:
+            # Save as .csv manually
+            with open(file_path, 'w') as f:
+                f.write("start,end,duration\n")
+                for feature in self.features:
+                    f.write(f"{feature[0]},{feature[1]},{feature[2]}\n")
+            print(f"Features successfully saved to {file_path}.")
+        except Exception as e:
+            print(f"Error saving features: {e}")
 
     def plot_data(self, t_start=0, t_end=None):
         """
