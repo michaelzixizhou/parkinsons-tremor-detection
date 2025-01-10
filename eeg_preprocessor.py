@@ -138,10 +138,11 @@ class EEGPreprocessor:
     def segment_with_labels(self, timestamps, save=False):
         """
         Segment EEG data using MNE Epochs.
+        NOTE: This methods assumes that timesteps are in timesteps, not seconds.
 
         Parameters:
         - raw_eeg: MNE Raw object (preprocessed EEG data).
-        - timestamps: List of tuples [(start, end, duration), ...] in seconds (tremor intervals).
+        - timestamps: List of tuples [(start, end, duration), ...] in timesteps (tremor intervals).
         - sfreq: Sampling frequency of the EEG data.
 
         Returns:
@@ -151,35 +152,35 @@ class EEGPreprocessor:
         sfreq = self.data.info['sfreq']
 
         for idx, (start, end, duration) in enumerate(timestamps):
-            # Convert seconds to sample indices
-            start_idx = int(start * sfreq)
-            end_idx = int(end * sfreq)
             
             # Pre-tremor event (3 seconds before tremor onset)
-            if start_idx - int(3 * sfreq) >= 0:  # Ensure valid range
-                events.append([start_idx - int(3 * sfreq), 0, 1])  # Event ID 1 for Pre-tremor
+            if start - int(3 * sfreq) >= 0:  # Ensure valid range
+                events.append([start - int(3 * sfreq), 0, 1])  # Event ID 1 for Pre-tremor
             
             # Tremor event (3 seconds starting from tremor onset)
-            if start_idx + int(3 * sfreq) <= self.data.n_times:  # Ensure valid range
-                events.append([start_idx, 0, 2])  # Event ID 2 for Tremor
+            if start + int(3 * sfreq) <= self.data.n_times:  # Ensure valid range
+                events.append([start, 0, 2])  # Event ID 2 for Tremor
 
+            # NOTE: I don't think there will be any <3 because they are filtered in acc data preprocess
             # Adjust end_idx for short tremors
-            if duration < 3:
-                end_idx = start_idx + int(3 * sfreq)  # Ensure a minimum 3-second window
+            #if duration / 100 < 3:
+            #    end = start + int(3 * sfreq)  # Ensure a minimum 3-second window
 
             # Determine bound for Control segment
-            if idx != len(timestamps) - 1:  # If not the last tremor event
-                next_pre_tremor_idx = int(timestamps[idx + 1][0] * sfreq) - int(3 * sfreq)
-                bound = min(next_pre_tremor_idx, self.data.n_times)
+            if idx == len(timestamps) - 1:
+                next_pre_tremor_idx = self.data.n_times
             else:
-                bound = self.data.n_times  # Last segment bounds to the end of the data
+                next_pre_tremor_idx = timestamps[idx + 1][0] - int(3 * sfreq)
+            bound = min(next_pre_tremor_idx, self.data.n_times)
 
             # Add Control event if valid
-            if end_idx + int(3 * sfreq) <= bound:  # Ensure non-overlap with the next Pre-tremor
-                events.append([end_idx, 0, 3])  # Event ID 3 for Control
+            if end + int(3 * sfreq) <= bound:  # Ensure non-overlap with the next Pre-tremor
+                events.append([end, 0, 3])  # Event ID 3 for Control
 
         # Convert events to NumPy array
         events = np.array(events)
+
+        print(events)
 
         print(f"Extracted {len(events)} events for segmentation.")
 
