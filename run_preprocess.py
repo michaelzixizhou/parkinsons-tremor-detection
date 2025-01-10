@@ -1,26 +1,77 @@
+import os
 from eeg_preprocessor import EEGPreprocessor
 from acc_preprocessor import AccelerometerPreprocessor
-import numpy as np
 
-if __name__ == "__main__":
-    ACC_DATA_PATH = "data/accelerometer_data/801_1_accelerometer.pkl"
-    EEG_DATA_PATH = "data/eeg_data/801_1_PD_REST-epo.fif"
+# Define paths to the directories
+ACC_DATA_DIR = "data/accelerometer_data/"
+EEG_DATA_DIR = "data/eeg_data/"
+PROCESSED_ACC_DIR = "processed/accelerometer_data/"
+PROCESSED_EEG_DIR = "processed/eeg_data/"
 
-    # accelerometer_loader = AccelerometerData(ACC_DATA_PATH, frequency=100)
-    # accelerometer_loader.preprocess_data()
-    # accelerometer_loader.visualize_features()
-    # accelerometer_loader.save_features()
-    # timestamps = accelerometer_loader.features
+def get_matching_files(acc_data_dir, eeg_data_dir):
+    """
+    Function to get the matching accelerometer and EEG files.
+    The data provided should already satisfy the requirement,
+    but this function is added as a safety check.
+    """
 
-    TIMESTAMPS_PATH = "processed/accelerometer_data/801_1_accelerometer_features.txt"
-    timestamps = []
-    with open(TIMESTAMPS_PATH, 'r') as file:
-        for line in file:
-            timestamps.append(tuple(int(x.strip()) for x in line.split(',')))
+    acc_files = [f for f in os.listdir(acc_data_dir) if f.endswith(".pkl")]
+    eeg_files = [f for f in os.listdir(eeg_data_dir) if f.endswith("-epo.fif")]
+    
+    # Extract IDs (before the first underscore) from filenames
+    acc_ids = set(f.split("_")[0] for f in acc_files)
+    eeg_ids = set(f.split("_")[0] for f in eeg_files)
+    
+    # Find the common IDs
+    common_ids = acc_ids.intersection(eeg_ids)
+    
+    # Filter the files to only include those that have matching IDs
+    matched_acc_files = [f for f in acc_files if f.split("_")[0] in common_ids]
+    matched_eeg_files = [f for f in eeg_files if f.split("_")[0] in common_ids]
+    
+    return matched_acc_files, matched_eeg_files
 
-    eeg_loader = EEGPreprocessor(EEG_DATA_PATH)
-    eeg_loader.preprocess()
-    epochs_dict = eeg_loader.segment_with_labels(timestamps, save=True)  
-    eeg_loader.plot_epochs()
+def process_data(acc_data_dir, eeg_data_dir, check_matching_files=True):
+    """
+    Function to process accelerometer and EEG data files.
+    NOTE: This will take a while to run, especially if you have a lot of files.
+    It will not do any visualizations. It only saves the processed EEG epochs files.
+    You can then load the files and visualize them using the EEGLoader class.
 
-    print(epochs_dict)
+    Parameters:
+    acc_data_dir (str): Path to the directory containing accelerometer data files.
+    eeg_data_dir (str): Path to the directory containing EEG data files.
+    check_matching_files (bool): Whether to check for matching files. Default is True.
+
+    Returns:
+    None
+    """
+
+    if check_matching_files:
+        matched_acc_files, matched_eeg_files = get_matching_files(acc_data_dir, eeg_data_dir)
+    else:
+        matched_acc_files = [f for f in os.listdir(acc_data_dir) if f.endswith(".pkl")]
+        matched_eeg_files = [f for f in os.listdir(eeg_data_dir) if f.endswith("-epo.fif")]
+    
+    for acc_file, eeg_file in zip(matched_acc_files, matched_eeg_files):
+        try:
+            # Process Accelerometer data
+            acc_path = os.path.join(acc_data_dir, acc_file)
+            print(f"Processing Accelerometer file: {acc_file}")
+            accelerometer_loader = AccelerometerPreprocessor(acc_path, frequency=100)
+            timestamps = accelerometer_loader.preprocess_data()
+            # accelerometer_loader.save_features()
+            # accelerometer_loader.visualize_features()
+
+            # Process EEG data
+            eeg_path = os.path.join(eeg_data_dir, eeg_file)
+            print(f"Processing EEG file: {eeg_file}")
+            eeg_loader = EEGPreprocessor(eeg_path)
+            eeg_loader.preprocess()
+            eeg_loader.segment_with_labels(timestamps, save=True)
+            # eeg_loader.plot_epochs()
+        except Exception as e:
+            print(f"Error processing {acc_file} and {eeg_file}: {e}")
+
+# Run the batch processing
+process_data(ACC_DATA_DIR, EEG_DATA_DIR, check_matching_files=False)
