@@ -4,12 +4,16 @@ import pywt
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+from mne.time_frequency import psd_array_welch
+from scipy.signal import find_peaks, periodogram
 
 class EEGDataLoader:
     def __init__(self, file_path=None, dir_path=None):
         self.file_path = file_path
         self.dir_path = dir_path
         self.epochs = None
+        self.psds = None
+        self.freqs = None
         self.features = None # This is extracted from epochs
         self.load_data()
 
@@ -29,6 +33,7 @@ class EEGDataLoader:
             return
         
         self.epochs = mne.read_epochs(self.file_path, preload=True)
+        print("self.epochs shape:", np.shape(self.epochs))
 
     def get_data_raw(self, copy=False):
         """
@@ -107,6 +112,124 @@ class EEGDataLoader:
         entropy = -np.sum(p_data * np.log2(p_data + np.finfo(float).eps))  # Add epsilon to avoid log(0)
         return entropy
     
+    def peak_frequency(self):
+        """
+        return peak frequency based on PSD across all channels
+        shape after extraction (n_epochs, n_channels)
+
+        """
+
+        data = self.get_data_raw() #Shape: (n_epochs, n_channels, n_times)
+        self.get_psd(data) #run once and self.psds and self.freqs could be used for band_power and power_bandwodth 
+        n_epochs, n_channels = np.shape(self.psds)
+
+        peak_freqs = np.zeros(shape=(n_epochs, n_channels))
+
+        for epoch in range(n_epochs):
+            for channel in range(n_channels):
+                peaks = find_peaks(self.psds[epoch, channel, :])
+                # Find the index from the maximum peak
+                i_max_peak = peaks[np.argmax(self.psds[epoch, channel, peaks])]
+                # Find the peak freq value from that index
+                peak_freq = self.freqs[epoch, channel, i_max_peak]
+                peak_freqs[epoch, channel] = peak_freq
+
+        return peak_freqs
+
+
+
+    def band_power(self):
+        """
+        return Average PSD across all channels
+        shape after extraction (n_epochs, n_channels)
+        """
+        mean_psds = self.psds.mean(axis=2)  
+        return mean_psds
+
+
+    def power_band_width(self):
+        """
+        return power band width based on periodgram 
+        shape after extraction (n_epochs, n_channels)
+        """
+
+        data = self.get_data_raw()
+        n_epochs, n_channels = np.shape(self.psds)
+        power_band_widths = np.zeros(shape=(n_epochs, n_channels))
+
+        for epoch in range(n_epochs):
+            for channel in range(n_channels):
+                psd_period = periodogram(data[epoch, channel, :], self.data.info['sfreq'])
+
+                peaks = find_peaks(psd_period)
+
+                #log conversion 
+                psd_period = 10 * np.log(psd_period)
+                # Find the index from the maximum peak
+                i_max_peak = peaks[np.argmax(psd_period[peaks])]
+                # obtain magnitude of periodogram at the peak 
+                peak_magnitude = psd_period[i_max_peak]
+                #obtain half power bandwidth
+                half_dB = peak_magnitude - 3
+
+                #get left boundary 
+                left_bound = self.get_boundaries(psd_period, half_dB, i_max_peak, -1)
+                right_bound = self.get_boundaries(psd_period, half_dB, i_max_peak, 1)
+
+                power_band_width = left_bound + right_bound
+
+                power_band_widths[epoch, channel] = power_band_width
+
+        return power_band_widths
+    
+    def get_boundaries(self, data, half_dB, start_ind, direction):
+        """
+        determine half bandwdith index location for left and right side
+        """
+        count = 0
+        ind = start_ind
+        while ind >= 0 and ind < len(data):
+            count += 1
+            ind += direction
+            if data[ind] < half_dB:
+                return count - 1
+            
+        if ind < 0:
+            return 0
+        else: 
+            return len(data) 
+
+
+    def get_psd(self, data):
+        """
+        extract psd from epoched data 
+        input: epoched data (n_epohs,n_channels, n_times)
+        Shape after extraction: (n_epochs, channel, window_length) for self.psds and self.freqs
+        """        
+
+        n_epochs, n_channels, n_times = np.shape(data)
+
+        self.psds = np.zeros(shape=(n_epochs, n_channels, n_times))
+        self.freqs = np.zeros(shape=(n_epochs, n_channels, n_times))
+        for epoch in range(n_epochs):
+            for channel in range(n_channels):
+                window_length = n_times
+                overlap = window_length // 2
+
+                psds, freqs = psd_array_welch(
+                    data[epoch, channel, :],
+                    sfreq=self.data.info['sfreq'],
+                    fmin=1,
+                    fmax=49,
+                    n_fft=window_length,
+                    n_overlap=overlap
+                )
+                self.psds[epoch, channel, :] = psds
+                self.freqs[epoch, channel, :] = freqs
+        
+        
+
+
     
     def scale_features(self):
         """
