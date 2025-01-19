@@ -1,5 +1,6 @@
 import os
 import mne
+import pywt
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
@@ -49,8 +50,63 @@ class EEGDataLoader:
 
         This should include multiple methods for each feature.
         """
+
+        if self.epochs is None:
+            raise ValueError("Data not loaded. Call load_data() first.")
+
+        entropy = self.extract_entropy_feature()
+        rms = self.extract_rms_feature()
+
+        #eventually concatenate all features...
+        self.features = np.concatenate((entropy, rms), axis = 1)
         pass
 
+    def extract_rms_feature(self):
+        """
+        Extract RMS features from the EEG data (self.epochs).
+        Shape after extraction: (n_epochs, n_features)
+        """
+        if self.epochs is None:
+            raise ValueError("Data not loaded. Call load_data() first.")
+        
+        data = self.get_data_raw()
+        rms_features = np.sqrt(np.mean(data ** 2, axis=2))  # RMS across the time axis
+        self.features = rms_features
+        return rms_features
+        
+    def extract_entropy_feature():
+        """
+        Extract Shannon entropy features from EEG data
+        First feature in Table 1 from https://bmcneurol.biomedcentral.com/articles/10.1186/s12883-023-03468-0/tables/1
+        Shape after extraction is (n_epochs, n_features)
+        """
+        
+        if self.epochs is None:
+            raise ValueError("Data not loaded. Call load_data() first.")
+
+        data = self.get_data_raw()
+        entropy_features = []
+        for epoch in data:
+            epoch_features = []
+            for channel_data in epoch:
+                wp = pywt.WaveletPacket(data=channel_data, wavelet = 'db1', mode='symmetric', maxlevel=3)
+                nodes = wp.get_level(wp.maxlevel, 'natural')
+                entropy = sum(self.shannon_entropy(node.data) for node in nodes)
+                epoch_features.append(entropy)
+        entropy_features.append(epoch_features)
+        self.features = entropy_features
+        return entropy_features
+    
+    def shannon_entropy(self, data):
+        """
+        Calculate the Shannon entropy of the given data.
+        """
+        p_data = np.abs(data) ** 2
+        p_data = p_data / np.sum(p_data)  # Normalize data
+        entropy = -np.sum(p_data * np.log2(p_data + np.finfo(float).eps))  # Add epsilon to avoid log(0)
+        return entropy
+    
+    
     def scale_features(self):
         """
         Apply StandardScaler to (all, by default) features.
