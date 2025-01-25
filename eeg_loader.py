@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from mne.time_frequency import psd_array_welch
 from scipy.signal import find_peaks, periodogram
 import matplotlib.pyplot as plt
+from scipy.stats import kurtosis, skew, moment, lmoment
 
 class EEGDataLoader:
     def __init__(self, file_path=None, dir_path=None):
@@ -243,6 +244,39 @@ class EEGDataLoader:
                 self.psds[epoch, channel, :] = psds
                 self.freqs[epoch, channel, :] = freqs
         
+    def conventional_statistics(self):
+        """
+        returns mean value, median value, variance, kurtosis, skewness and 5th and 6th order statistics. 
+        input: epoched data (n_epochs,n_channels, n_times)
+        Shape after extraction: (n_epochs, channel, 7)
+        """ 
+        data = self.get_data_raw()
+
+        #each would have dimensions of (n_epochs, channel)
+        mean = np.mean(data, axis = 2)
+        variance = np.var(data, axis = 2)
+        median = np.median(data, axis = 2)
+        kurtosis_val = kurtosis(data, axis = 2)
+        skewness_val = skew(data, axis = 2)
+        moment_five = moment(data, axis = 2, order = 5)
+        moment_six = moment(data, axis = 2, order =  6)
+
+        return np.concatenate((mean, variance, median, kurtosis_val, skewness_val, moment_five, moment_six), axis = -1)
+
+    def L_moments(self):
+        """
+        returns L-moments (L-scale, L-skewness, L-kurtosis)
+        input: epoched data (n_epochs,n_channels, n_times)
+        Shape after extraction: (n_epochs, channel, 3)
+        """ 
+        data = self.get_data_raw()
+
+        #each would have dimensions of (n_epochs, channel)
+        l_scale = lmoment(data, axis = 2, order = 2)
+        l_skewness = lmoment(data, axis = 2, order = 3)
+        l_kurtosis = lmoment(data, axis = 2, order =  4)
+
+        return np.concatenate((l_scale, l_skewness, l_kurtosis), axis = -1)
 
     
     def scale_features(self):
