@@ -8,6 +8,8 @@ from mne.time_frequency import psd_array_welch
 from scipy.signal import find_peaks, periodogram
 import matplotlib.pyplot as plt
 from scipy.stats import kurtosis, skew, moment, lmoment
+from scipy.interpolate import UnivariateSpline
+from mne_features.univariate import compute_samp_entropy
 
 class EEGDataLoader:
     def __init__(self, file_path=None, dir_path=None):
@@ -66,9 +68,23 @@ class EEGDataLoader:
         power_band_widths = self.power_band_width()
         peak_frequencies = self.peak_frequency()
         band_power = self.band_power()
-        #eventually concatenate all features... for each feature, shape would be (n_epochs, n_channels), concatenated together in the third dimension
-        self.features = np.concatenate((entropy, rms), axis = -1)
-        pass
+        conventional_statistics = self.conventional_statistics()
+        L_moments = self.L_moments()
+        FormFactor = self.FormFactor()
+        SampleEntropy = self.SampleEntropy()
+        #increase dimensions 
+        entropy = entropy[:, :, np.newaxis]
+        rms = rms[:, :, np.newaxis]
+        power_band_widths = power_band_widths[:, :, np.newaxis]
+        peak_frequencies = peak_frequencies[:, :, np.newaxis]
+        band_power = band_power[:, :, np.newaxis]
+        FormFactor = FormFactor[:, :, np.newaxis]
+        SampleEntropy = SampleEntropy[:, :, np.newaxis]
+
+        #eventually concatenate all features... for each feature, shape would be (n_epochs, n_channels), concatenated together in the third dimension (n_features)
+        self.features = np.concatenate((entropy, rms, power_band_widths, peak_frequencies, band_power, conventional_statistics, L_moments, FormFactor, SampleEntropy), axis = 2)
+        print(np.shape(self.features))
+        print("extraction complete")
 
     def extract_rms_feature(self):
         """
@@ -92,18 +108,19 @@ class EEGDataLoader:
         
         if self.epochs is None:
             raise ValueError("Data not loaded. Call load_data() first.")
-
         data = self.get_data_raw()
-        entropy_features = []
-        for epoch in data:
-            epoch_features = []
-            for channel_data in epoch:
+        n_epochs, n_channels, n_times = np.shape(data)
+
+        entropy_features = np.zeros((n_epochs, n_channels))
+
+        for epoch_num, epoch in enumerate(data):
+            for channel_num, channel_data in enumerate(epoch):
                 wp = pywt.WaveletPacket(data=channel_data, wavelet = 'db1', mode='symmetric', maxlevel=3)
                 nodes = wp.get_level(wp.maxlevel, 'natural')
                 entropy = sum(self.shannon_entropy(node.data) for node in nodes)
-                epoch_features.append(entropy)
-        entropy_features.append(epoch_features)
+                entropy_features[epoch_num, channel_num] = entropy
         self.features = entropy_features
+        print(np.shape(entropy_features))
         return entropy_features
     
     def shannon_entropy(self, data):
@@ -261,7 +278,7 @@ class EEGDataLoader:
         moment_five = moment(data, axis = 2, order = 5)
         moment_six = moment(data, axis = 2, order =  6)
 
-        return np.concatenate((mean, variance, median, kurtosis_val, skewness_val, moment_five, moment_six), axis = -1)
+        return np.stack((mean, variance, median, kurtosis_val, skewness_val, moment_five, moment_six), axis = 2)
 
     def L_moments(self):
         """
@@ -276,8 +293,58 @@ class EEGDataLoader:
         l_skewness = lmoment(data, axis = 2, order = 3)
         l_kurtosis = lmoment(data, axis = 2, order =  4)
 
-        return np.concatenate((l_scale, l_skewness, l_kurtosis), axis = -1)
+        return np.stack((l_scale, l_skewness, l_kurtosis), axis = 2)
 
+    def FormFactor(self):
+        """
+        returns form factor (defined below)
+        The ratio of the mobility of the first derivative of the signal to the mobility of the signal [36], 
+        where mobility is the ratio of standard deviation for first derivative of time-series and the time-series itself
+        Shape after extraction: (n_epochs, channel)
+        """
+    
+        
+        data = self.get_data_raw()
+
+        n_epochs, n_channels, n_times = np.shape(data)
+
+        FormFactor = np.zeros((n_epochs, n_channels))
+        
+        for epoch in range(n_epochs):
+            for channel in range(n_channels):
+
+                data_epoch = data[epoch, channel, :]
+                x_vec = [x for x in range(len(data_epoch))]
+                spl = UnivariateSpline(x_vec, data_epoch)
+                derivative_one = spl.derivative()
+
+                derivative_two = derivative_one.derivative()
+
+                mobility_one = np.std(derivative_one(x_vec)) / np.std(data_epoch)
+                mobility_two = np.std(derivative_two(x_vec)) / np.std(derivative_one(x_vec))
+                FormFactor[epoch, channel] = mobility_two / mobility_one
+
+        return FormFactor
+
+    def SampleEntropy(self):
+        """
+        returns Sample Entropy (defined below)
+        Negative logarithm of conditional probability of the successive segmented time-series samples. 
+        It is an indicator of time-series complexity
+        """
+
+        data = self.get_data_raw()
+
+        n_epochs, n_channels, n_times = np.shape(data)
+
+        SampleEntropy = np.zeros((n_epochs, n_channels))
+        
+        for epoch in range(n_epochs):
+            data_epoch = data[epoch, :, :]
+            samp_entropy = compute_samp_entropy(data_epoch)
+            SampleEntropy[epoch, :] = samp_entropy
+
+        return SampleEntropy
     
     def scale_features(self):
         """
