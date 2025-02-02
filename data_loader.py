@@ -1,4 +1,5 @@
 import pickle
+import pandas as pd
 import mne
 
 class DataLoader:
@@ -20,6 +21,9 @@ class DataLoader:
         elif self.file_path.endswith('.fif'):
             self.data = mne.io.read_raw_fif(self.file_path, preload=True)
             self.n_timesteps = self.data.n_times
+        elif self.file_path.endswith('.csv'):
+            self.data = pd.read_csv(self.file_path)
+            self.n_timesteps = self.data.shape[0]
         else:
             raise ValueError("Unsupported file format")
 

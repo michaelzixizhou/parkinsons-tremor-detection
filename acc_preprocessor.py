@@ -282,8 +282,8 @@ class AccelerometerPreprocessor(DataLoader):
         print("Multiply")
         self._multiply()
 
-        print("Plot data")
-        self.plot_data()
+        # print("Plot data")
+        # self.plot_data()
 
         print("Thresholding")
         self._thresholding()
