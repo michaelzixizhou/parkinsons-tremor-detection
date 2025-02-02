@@ -29,14 +29,22 @@ class EEGDataLoader:
         files into a single Epoch object. This allows you to process it all at once.
         """
 
+        if self.file_path is None and self.dir_path is None:
+            raise ValueError("Provide either file_path or dir_path")
+
         if self.file_path is None:
             for file in os.listdir(self.dir_path):
                 if file.endswith(".fif"):
-                    self.file_path = os.path.join(self.dir_path, file)
-                    mne.concatenate_epochs([self.epochs, mne.read_epochs(self.file_path, preload=True)])
-            return
+                    file_path = os.path.join(self.dir_path, file)
+                    if self.epochs is None:
+                        # Initialize self.epochs with the first file
+                        self.epochs = mne.read_epochs(file_path, preload=True)
+                    else:
+                        # Concatenate new epochs with existing ones
+                        self.epochs = mne.concatenate_epochs([self.epochs, mne.read_epochs(file_path, preload=True)])
+        else:
+            self.epochs = mne.read_epochs(self.file_path, preload=True)
         
-        self.epochs = mne.read_epochs(self.file_path, preload=True)
         print("self.epochs shape:", np.shape(self.epochs))
 
     def get_data_raw(self, copy=False):
@@ -52,7 +60,7 @@ class EEGDataLoader:
             raise ValueError("Data not loaded. Call load_data() first.")
         return self.epochs.get_data(copy=copy)
     
-    def extract_features(self):
+    def extract_features(self, scale=True):
         """
         Extract features (self.features) from the EEG data (self.epochs).
         Shape after extraction: (n_epochs, n_channels, n_features), n_features = 8 for this method
@@ -72,7 +80,8 @@ class EEGDataLoader:
         L_moments = self.L_moments()
         FormFactor = self.FormFactor()
         SampleEntropy = self.SampleEntropy()
-        #increase dimensions 
+
+        # increase dimensions
         entropy = entropy[:, :, np.newaxis]
         rms = rms[:, :, np.newaxis]
         power_band_widths = power_band_widths[:, :, np.newaxis]
@@ -81,10 +90,16 @@ class EEGDataLoader:
         FormFactor = FormFactor[:, :, np.newaxis]
         SampleEntropy = SampleEntropy[:, :, np.newaxis]
 
-        #eventually concatenate all features... for each feature, shape would be (n_epochs, n_channels), concatenated together in the third dimension (n_features)
+        # eventually concatenate all features... for each feature, shape would be (n_epochs, n_channels), concatenated together in the third dimension (n_features)
         self.features = np.concatenate((entropy, rms, power_band_widths, peak_frequencies, band_power, conventional_statistics, L_moments, FormFactor, SampleEntropy), axis = 2)
         print(np.shape(self.features))
         print("extraction complete")
+
+        if scale:
+            self.scale_features()
+            print("scaling complete")
+            
+        return self.features
 
     def extract_rms_feature(self):
         """
@@ -136,7 +151,6 @@ class EEGDataLoader:
         """
         return peak frequency based on PSD across all channels
         shape after extraction (n_epochs, n_channels)
-
         """
 
         data = self.get_data_raw() #Shape: (n_epochs, n_channels, n_times)
@@ -350,7 +364,9 @@ class EEGDataLoader:
         """
         Apply StandardScaler to (all, by default) features.
         """
-        pass
+        scaler = StandardScaler()
+        for ch in range(self.features.shape[1]):
+            self.features[:, ch, :] = scaler.fit_transform(self.features[:, ch, :])
 
     def get_labels(self):
         """
@@ -409,7 +425,7 @@ class EEGDataLoader:
         """
 
         if self.features is None:
-            raise ValueError("Features not extracted. Call extract_features() first")
+            self.extract_features()
 
         X = self.features
         y = self.get_labels()
