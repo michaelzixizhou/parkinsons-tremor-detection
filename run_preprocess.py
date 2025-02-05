@@ -1,5 +1,5 @@
 import os
-import multiprocessing
+import multiprocessing, warnings
 from eeg_preprocessor import EEGPreprocessor
 from acc_preprocessor import AccelerometerPreprocessor
 
@@ -54,6 +54,11 @@ def process_single_pair(acc_file, eeg_file, acc_data_dir, eeg_data_dir):
         # accelerometer_loader.save_features()
         # accelerometer_loader.visualize_features()
 
+        # If no timestamps found, skip EEG processing
+        if len(timestamps) == 0:
+            warnings.warn(f"No timestamps found in {acc_file}. Skipping EEG processing.")
+            return
+
         # Process EEG data
         eeg_path = os.path.join(eeg_data_dir, eeg_file)
         print(f"Processing EEG file: {eeg_file}")
@@ -64,7 +69,7 @@ def process_single_pair(acc_file, eeg_file, acc_data_dir, eeg_data_dir):
     except Exception as e:
         print(f"Error processing {acc_file} and {eeg_file}: {e}")
 
-def process_data(acc_data_dir, eeg_data_dir, check_matching_files=True):
+def process_data(acc_data_dir, eeg_data_dir, check_matching_files=True, remove_duplicates=True):
     """
     Function to process accelerometer and EEG data files in parallel.
     It will not do any visualizations. It only saves the processed EEG epochs files.
@@ -74,6 +79,7 @@ def process_data(acc_data_dir, eeg_data_dir, check_matching_files=True):
     acc_data_dir (str): Path to the directory containing accelerometer data files.
     eeg_data_dir (str): Path to the directory containing EEG data files.
     check_matching_files (bool): Whether to check for matching files. Default is True.
+    remove_duplicates (bool): Whether to remove duplicates to avoid reprocessing files. Default is True.
 
     Returns:
     None
@@ -84,10 +90,20 @@ def process_data(acc_data_dir, eeg_data_dir, check_matching_files=True):
         matched_acc_files = [f for f in os.listdir(acc_data_dir) if f.endswith(".pkl")]
         matched_eeg_files = [f for f in os.listdir(eeg_data_dir) if f.endswith("-epo.fif")]
 
+    if remove_duplicates:
+        # We will scan the existing processed/eeg_data directory to avoid reprocessing those files
+        existing_files = [f for f in os.listdir(eeg_data_dir) if f.endswith("-epo.fif")]
+        matched_eeg_files = [f for f in matched_eeg_files if f not in existing_files]
+        matched_acc_files = [f for f in matched_acc_files if f.replace(".pkl", "-epo.fif") not in existing_files]
+
+    print(f"Found {len(matched_acc_files)} matching accelerometer files.")
+    print(f"Found {len(matched_eeg_files)} matching EEG files.")
+
     # Use multiprocessing to process the files in parallel
     with multiprocessing.Pool() as pool:
         pool.starmap(process_single_pair, [(acc_file, eeg_file, acc_data_dir, eeg_data_dir)
                                           for acc_file, eeg_file in zip(matched_acc_files, matched_eeg_files)])
 
-# Run the batch processing in parallel
-process_data(ACC_DATA_DIR, EEG_DATA_DIR, check_matching_files=False)
+if __name__ == "__main__":
+    # Run the batch processing in parallel
+    process_data(ACC_DATA_DIR, EEG_DATA_DIR, check_matching_files=False)

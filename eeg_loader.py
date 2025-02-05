@@ -60,11 +60,14 @@ class EEGDataLoader:
             raise ValueError("Data not loaded. Call load_data() first.")
         return self.epochs.get_data(copy=copy)
     
-    def extract_features(self, scale=True):
+    def extract_features(self, scale=True, save=True):
         """
         Extract features (self.features) from the EEG data (self.epochs).
         Shape after extraction: (n_epochs, n_channels, n_features), n_features = 8 for this method
         If you loaded multiple files into one Epoch object, all epochs will be processed.
+
+        - scale: Bool to indicate whether to scale the features.
+        - save: Bool to indicate whether to save the features to a file.
 
         This should include multiple methods for each feature.
         """
@@ -96,10 +99,19 @@ class EEGDataLoader:
         print("extraction complete")
 
         if scale:
-            self.scale_features()
+            self._scale_features()
             print("scaling complete")
-            
-        return self.features
+
+        if save:
+            self._save_features("eeg_features.npy")
+    
+    def _save_features(self, file_path):
+        """
+        Save the extracted features to a file.
+        The features should be in the shape (n_epochs, n_channels, n_features).
+        """
+        np.save(file_path, self.features)
+        print(f"Features saved to {file_path}")
 
     def extract_rms_feature(self):
         """
@@ -149,30 +161,32 @@ class EEGDataLoader:
     
     def peak_frequency(self):
         """
-        return peak frequency based on PSD across all channels
-        shape after extraction (n_epochs, n_channels)
+        Return peak frequency based on PSD across all channels.
+        Shape after extraction: (n_epochs, n_channels)
         """
 
-        data = self.get_data_raw() #Shape: (n_epochs, n_channels, n_times)
-        self.get_psd() #run once and self.psds and self.freqs could be used for band_power and power_bandwodth 
+        data = self.get_data_raw()  # Shape: (n_epochs, n_channels, n_times)
+        self.get_psd()  # Compute PSD once so self.psds and self.freqs are available
         (n_epochs, n_channels, n_fft) = np.shape(self.psds)
 
-        peak_freqs = np.zeros(shape=(n_epochs, n_channels))
+        peak_freqs = np.full(shape=(n_epochs, n_channels), fill_value=np.nan)  # Initialize with NaN
 
         for epoch in range(n_epochs):
             for channel in range(n_channels):
+                psd_vals = np.squeeze(self.psds[epoch, channel, :])  # Extract PSD for this channel
+                peaks, _ = find_peaks(psd_vals)  # Find peaks
 
-                
-                peaks, _ = find_peaks(np.squeeze(self.psds[epoch, channel, :]))
-                # Find the index from the maximum peak
-                i_max_peak = peaks[np.argmax(self.psds[epoch, channel, peaks])]
-                # Find the peak freq value from that index
-                peak_freq = self.freqs[epoch, channel, i_max_peak]
-                peak_freqs[epoch, channel] = peak_freq
+                if len(peaks) > 0:
+                    # Find the index of the maximum peak
+                    i_max_peak = peaks[np.argmax(psd_vals[peaks])]
+                else:
+                    # Fallback: Choose the frequency bin with max power
+                    i_max_peak = np.argmax(psd_vals)  
+
+                # Assign the corresponding frequency
+                peak_freqs[epoch, channel] = self.freqs[epoch, channel, i_max_peak]
 
         return peak_freqs
-
-
 
     def band_power(self):
         """
@@ -180,9 +194,8 @@ class EEGDataLoader:
         shape after extraction (n_epochs, n_channels)
         """
         self.get_psd()
-        mean_psds = self.psds.mean(axis=2)  
+        mean_psds = self.psds.mean(axis=2)
         return mean_psds
-
 
     def power_band_width(self):
         """
@@ -199,19 +212,24 @@ class EEGDataLoader:
         for epoch in range(n_epochs):
             for channel in range(n_channels):
 
-                #is there a difference between using periodogram and power spectrum densities? 
-                #freqs, psd_period = periodogram(data[epoch, channel, :], fs = 500)
-                #peaks, _ = find_peaks(psd_period)
+                # NOTE: is there a difference between using periodogram and power spectrum densities?
+                # freqs, psd_period = periodogram(data[epoch, channel, :], fs = 500)
+                # peaks, _ = find_peaks(psd_period)
 
                 psd_period = self.psds[epoch, channel,:]
                 freqs = self.freqs[epoch, channel,:]
                 peaks, _ = find_peaks(psd_period)
-                  #log conversion 
+
+                if len(peaks) == 0:
+                    power_band_widths[epoch, channel] = np.nan
+                    continue
+
+                # log conversion
                 psd_period = 10 * np.log(psd_period)
                 # Find the index from the maximum peak
                 i_max_peak = peaks[np.argmax(psd_period[peaks])]
 
-                # obtain magnitude of periodogram at the peak 
+                # obtain magnitude of periodogram at the peak
                 peak_magnitude = psd_period[i_max_peak]
                 #obtain half power bandwidth
                 half_dB = peak_magnitude - 3
@@ -234,17 +252,14 @@ class EEGDataLoader:
         """
         count = 0
         ind = start_ind
-        while ind >= 0 and ind < len(data):
+        while 0 <= ind < len(data):
+            if data[ind] < half_dB:
+                return count
+
             count += 1
             ind += direction
-            if data[ind] < half_dB:
-                return count - 1
-            
-        if ind < 0:
-            return start_ind
-        else: 
-            return len(data) - start_ind
-
+        
+        return count
 
     def get_psd(self):
         """
@@ -360,7 +375,7 @@ class EEGDataLoader:
 
         return SampleEntropy
     
-    def scale_features(self):
+    def _scale_features(self):
         """
         Apply StandardScaler to (all, by default) features.
         """
