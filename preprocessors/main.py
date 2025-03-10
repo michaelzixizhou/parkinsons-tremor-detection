@@ -1,6 +1,5 @@
-from acc_preprocessor import AccelerometerPreprocessor
-from eeg_preprocessor import EEGPreprocessor
-import numpy as np
+from preprocessors.acc_preprocessor import AccelerometerPreprocessor
+from preprocessors.eeg_preprocessor import EEGPreprocessor
 import argparse
 
 if __name__ == "__main__":
@@ -21,7 +20,7 @@ if __name__ == "__main__":
         print(psds.shape)
 
     else:
-        FILE_PATH = "data/accelerometer_data/809_1_accelerometer.pkl"
+        FILE_PATH = "data/accelerometer_data/801_1_accelerometer.pkl"
         accelerometer_data = AccelerometerPreprocessor(FILE_PATH, frequency=100)
         accelerometer_data.plot_data()
         accelerometer_data.preprocess_data()
