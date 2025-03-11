@@ -3,7 +3,7 @@ import numpy as np
 from scipy.signal import lfilter, firwin, filtfilt, savgol_filter, find_peaks
 from spectrum import arburg, arma2psd
 import matplotlib.pyplot as plt
-from data_loader import DataLoader
+from preprocessors.data_loader import DataLoader
 
 class AccelerometerPreprocessor(DataLoader):
     def __init__(self, file_path, frequency):

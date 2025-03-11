@@ -1,7 +1,7 @@
 import os
 import multiprocessing, warnings
-from eeg_preprocessor import EEGPreprocessor
-from acc_preprocessor import AccelerometerPreprocessor
+from preprocessors.eeg_preprocessor import EEGPreprocessor
+from preprocessors.acc_preprocessor import AccelerometerPreprocessor
 
 # Define paths to the directories
 ACC_DATA_DIR = "data/accelerometer_data/"
