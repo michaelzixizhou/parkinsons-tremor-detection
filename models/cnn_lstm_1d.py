@@ -9,19 +9,16 @@ class CNNLSTM(nn.Module):
     """
     Applies 1D CNN to automatically extract features from EEG windows and passes them to an LSTM for classification.
     """
-    def __init__(self, num_classes=3, cnn_channels=16, lstm_hidden_size=32, lstm_layers=1, lr=0.001, device=torch.device("cpu")):
+    def __init__(self, num_classes=3, in_channels=41, cnn_channels=16, lstm_hidden_size=32, lstm_layers=1, lr=1e-4, device=torch.device("cpu")):
         super(CNNLSTM, self).__init__()
         self.device = device  # Set device for the model
 
         # CNN Feature Extractor
         self.cnn = nn.Sequential(
-            nn.Conv1d(in_channels=41, out_channels=cnn_channels * 2, kernel_size=3, padding=1),
+            nn.Conv1d(in_channels=in_channels, out_channels=cnn_channels * 2, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2),
             nn.Conv1d(in_channels=cnn_channels * 2, out_channels=cnn_channels, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2),
-            nn.Conv1d(in_channels=cnn_channels, out_channels=cnn_channels, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2)
         )
@@ -40,10 +37,14 @@ class CNNLSTM(nn.Module):
             nn.Linear(lstm_hidden_size, 128),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(128, num_classes)
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(64, num_classes)
         )
 
-        self.optimizer = optim.Adam(self.parameters(), lr=lr)
+        # apply L2 weight decay
+        self.optimizer = optim.Adam(self.parameters(), lr=lr, weight_decay=1e-4)
         self.criterion = nn.CrossEntropyLoss()
         
         # TensorBoard writer
@@ -218,19 +219,24 @@ class CNNLSTM(nn.Module):
         preds = all_preds.cpu().numpy()
         labels = all_labels.cpu().numpy()
         
+        # Ensure labels are within valid range
+        num_classes = 3
+        valid_mask = (labels < num_classes) & (labels >= 0)
+        preds = preds[valid_mask]
+        labels = labels[valid_mask]
+        
         # Calculate metrics
         accuracy = (preds == labels).mean()
         
         # Initialize arrays for per-class metrics
-        num_classes = 3
         precision = np.zeros(num_classes)
         recall = np.zeros(num_classes)
         f1 = np.zeros(num_classes)
         
         # Calculate confusion matrix
         confusion_matrix = np.zeros((num_classes, num_classes), dtype=int)
-        for i in range(len(preds)):
-            confusion_matrix[labels[i]][preds[i]] += 1
+        for pred, label in zip(preds, labels):
+            confusion_matrix[label][pred] += 1
             
         # Calculate per-class metrics
         for i in range(num_classes):

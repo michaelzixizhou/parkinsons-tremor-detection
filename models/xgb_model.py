@@ -29,19 +29,23 @@ class XGBoostClassifier:
         else:
             self.params = params
         
+        self.n_classes = n_classes
         self.model = None
     
-    def fit(self, X_train, y_train, X_test, y_test, label_mapping=False):
+    def fit(self, X_train, y_train, X_test, y_test, label_mapping=True):
         """
-        Train the XGBoost model for multi-class classification.
+        Train the XGBoost model for multi-class classification. Saves after training.
 
         Parameters:
         - X_train (np.ndarray or pd.DataFrame): Training feature matrix (n_epochs, n_channels, n_features).
         - y_train (np.ndarray or pd.Series): Training target labels (n_epochs,).
         - X_test (np.ndarray or pd.DataFrame): Testing feature matrix (n_epochs, n_channels, n_features).
         - y_test (np.ndarray or pd.Series): Testing target labels (n_epochs,).
-        - label_mapping (bool): Whether to encode the target labels using LabelEncoder.
+        - label_mapping (bool): Whether to encode the target labels using LabelEncoder. Default this to true
+            due to the setup of the dataset. Set to False if the labels are already encoded.
         """
+
+        assert self.n_classes == len(np.unique(y_train)), "Number of classes does not match the target labels."
 
         if label_mapping:
             label_encoder = LabelEncoder()

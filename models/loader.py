@@ -47,7 +47,7 @@ class TremorDataset(Dataset):
         return window, label
 
 
-def create_data_loaders(dataset, batch_size=32, train_ratio=0.7, val_ratio=0.15, 
+def create_data_loaders(dataset, batch_size=32, train_ratio=0.7, val_ratio=0.15,
                         test_ratio=0.15, seed=42, num_workers=4):
     """
     Create train, validation, and test dataloaders from a dataset.
@@ -77,23 +77,30 @@ def create_data_loaders(dataset, batch_size=32, train_ratio=0.7, val_ratio=0.15,
     test_size = dataset_size - train_size - val_size
     
     # Split the dataset
-    train_dataset, val_dataset, test_dataset = random_split(
-        dataset, [train_size, val_size, test_size]
-    )
+    # Create sequential indices and split them
+    indices = torch.arange(dataset_size)
+    train_indices = indices[:train_size]
+    val_indices = indices[train_size:train_size+val_size]
+    test_indices = indices[train_size+val_size:]
     
+    # Create dataset subsets without shuffling
+    train_dataset = torch.utils.data.Subset(dataset, train_indices)
+    val_dataset = torch.utils.data.Subset(dataset, val_indices)
+    test_dataset = torch.utils.data.Subset(dataset, test_indices)
+
     # Create data loaders
     train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, 
+        train_dataset, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=True
     )
     
     val_loader = DataLoader(
-        val_dataset, batch_size=batch_size, shuffle=False, 
+        val_dataset, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=True
     )
     
     test_loader = DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=False, 
+        test_dataset, batch_size=batch_size, shuffle=False,
         num_workers=num_workers, pin_memory=True
     )
     
@@ -151,17 +158,17 @@ def create_stratified_split_loaders(dataset, batch_size=32, train_ratio=0.7, val
     
     # Create data loaders
     train_loader = DataLoader(
-        dataset, batch_size=batch_size, sampler=train_sampler, 
+        dataset, batch_size=batch_size, sampler=train_sampler,
         num_workers=num_workers, pin_memory=True
     )
     
     val_loader = DataLoader(
-        dataset, batch_size=batch_size, sampler=val_sampler, 
+        dataset, batch_size=batch_size, sampler=val_sampler,
         num_workers=num_workers, pin_memory=True
     )
     
     test_loader = DataLoader(
-        dataset, batch_size=batch_size, sampler=test_sampler, 
+        dataset, batch_size=batch_size, sampler=test_sampler,
         num_workers=num_workers, pin_memory=True
     )
     
